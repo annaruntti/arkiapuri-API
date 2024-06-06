@@ -55,9 +55,9 @@ exports.userSignIn = async (req, res) => {
   //   })
   // }
 
-  await User.findByIdAndUpdate(user._id, {
-    tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
-  })
+  // await User.findByIdAndUpdate(user._id, {
+  //   tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
+  // })
 
   const userInfo = {
     username: user.username,
