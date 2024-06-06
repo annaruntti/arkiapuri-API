@@ -30,28 +30,6 @@ const test = async (email, password) => {
   console.log(result)
 }
 
-// test('testi@testi.fi', 'Maija Meikäläinen');
-
-// const email = "testi1@testi.fi"
-
-// app.post("/create-user", async (req, res) => {
-//   res.json(req.body)
-//   const isNewUser = await User.isThisEmailInUse(email)
-//   if (!isNewUser)
-//     return res.json({
-//       success: false,
-//       message:
-//         "This email is already in use, try sign-in with a different email",
-//     })
-//   const user = await User({
-//     username: "Maija Meikäläinen",
-//     email: email,
-//     password: "testi1234",
-//   })
-//   await user.save()
-//   res.json(user)
-// })
-
 app.get("/test", (req, res) => {
   res.send("Hello world")
 })

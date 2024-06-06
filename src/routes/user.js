@@ -14,9 +14,9 @@ const {
   validateUserSignIn,
 } = require("../middlewares/validation/user")
 
-const multer = require("multer")
+// const multer = require("multer")
 
-const storage = multer.diskStorage({})
+// const storage = multer.diskStorage({})
 
 // const fileFilter = (req, file, cb) => {
 //   if (file.mimetype.startsWith("image")) {
@@ -26,8 +26,6 @@ const storage = multer.diskStorage({})
 //   }
 // }
 // const uploads = multer({ storage, fileFilter })
-
-router.post("/create-user", createUser)
 
 router.post("/create-user", validateUserSignUp, userVlidation, createUser)
 router.post("/sign-in", validateUserSignIn, userVlidation, userSignIn)

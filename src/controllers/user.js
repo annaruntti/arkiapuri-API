@@ -38,20 +38,22 @@ exports.userSignIn = async (req, res) => {
       message: "email / password does not match!",
     })
 
-  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-    expiresIn: "1d",
-  })
+  res.json({ success: true, user: user })
 
-  let oldTokens = user.tokens || []
+  // const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+  //   expiresIn: "1d",
+  // })
 
-  if (oldTokens.length) {
-    oldTokens = oldTokens.filter((t) => {
-      const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000
-      if (timeDiff < 86400) {
-        return t
-      }
-    })
-  }
+  // let oldTokens = user.tokens || []
+
+  // if (oldTokens.length) {
+  //   oldTokens = oldTokens.filter((t) => {
+  //     const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000
+  //     if (timeDiff < 86400) {
+  //       return t
+  //     }
+  //   })
+  // }
 
   await User.findByIdAndUpdate(user._id, {
     tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
