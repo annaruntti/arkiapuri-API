@@ -31,5 +31,9 @@ router.post("/create-user", validateUserSignUp, userVlidation, createUser)
 router.post("/sign-in", validateUserSignIn, userVlidation, userSignIn)
 router.post("/sign-out", isAuth, signOut)
 // router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
+router.post("/create-grocery", isAuth, (req, res) => {
+  // continue later
+  res.send("you are in secret route now")
+})
 
 module.exports = router

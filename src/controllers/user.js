@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken")
 const User = require("../models/user")
 const sharp = require("sharp")
-// const cloudinary = require("../helper/imageUpload");
+const cloudinary = require("../helper/imageUpload")
 
 exports.createUser = async (req, res) => {
   const { username, email, password } = req.body
@@ -38,61 +38,66 @@ exports.userSignIn = async (req, res) => {
       message: "email / password does not match!",
     })
 
-  res.json({ success: true, user: user })
+  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+    expiresIn: "1d",
+  })
 
-  // const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-  //   expiresIn: "1d",
-  // })
+  console.log("testi", process.env.JWT_SECRET)
 
-  // let oldTokens = user.tokens || []
+  let oldTokens = user.tokens || []
 
-  // if (oldTokens.length) {
-  //   oldTokens = oldTokens.filter((t) => {
-  //     const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000
-  //     if (timeDiff < 86400) {
-  //       return t
-  //     }
-  //   })
-  // }
+  if (oldTokens.length) {
+    oldTokens = oldTokens.filter((t) => {
+      const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000
+      if (timeDiff < 86400) {
+        return t
+      }
+    })
+  }
 
-  // await User.findByIdAndUpdate(user._id, {
-  //   tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
-  // })
+  await User.findByIdAndUpdate(user._id, {
+    tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
+  })
 
   const userInfo = {
     username: user.username,
     email: user.email,
+    avatar: user.avatar ? user.avatar : "",
   }
 
   res.json({ success: true, user: userInfo, token })
 }
 
-// exports.uploadProfile = async (req, res) => {
-//   const { user } = req;
-//   if (!user)
-//     return res
-//       .status(401)
-//       .json({ success: false, message: "unauthorized access!" });
+exports.uploadProfile = async (req, res) => {
+  const { user } = req
+  if (!user)
+    return res
+      .status(401)
+      .json({ success: false, message: "unauthorized access!" })
 
-//   try {
-//     const result = await cloudinary.uploader.upload(req.file.path, {
-//       public_id: `${user._id}_profile`,
-//       width: 500,
-//       height: 500,
-//       crop: "fill",
-//     });
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      public_id: `${user._id}_profile`,
+      width: 500,
+      height: 500,
+      crop: "fill",
+    })
 
-//     const updatedUser = await User.findByIdAndUpdate(user._id, { new: true });
-//     res
-//       .status(201)
-//       .json({ success: true, message: "Your profile has updated!" });
-//   } catch (error) {
-//     res
-//       .status(500)
-//       .json({ success: false, message: "server error, try after some time" });
-//     console.log("Error while uploading profile image", error.message);
-//   }
-// };
+    const updatedUser = await User.findByIdAndUpdate(
+      user._id,
+      { avatar: result.url },
+      { new: true }
+    )
+    res
+      .status(201)
+      .json({ success: true, message: "Your profile has updated!" })
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "server error, try after some time" })
+    console.log("Error while uploading profile image", error.message)
+  }
+}
 
 exports.signOut = async (req, res) => {
   if (req.headers && req.headers.authorization) {
