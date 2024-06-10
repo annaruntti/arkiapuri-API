@@ -15,7 +15,9 @@ const {
   validateUserSignIn,
 } = require("../middlewares/validation/user")
 
-const Sharp = require("sharp")
+const User = require("../models/user")
+
+const sharp = require("sharp")
 
 const multer = require("multer")
 
@@ -28,8 +30,6 @@ const fileFilter = (req, file, cb) => {
     cb("invalid image file!", false)
   }
 }
-multer({ storage, fileFilter })
-
 const uploads = multer({ storage, fileFilter })
 
 router.post("/create-user", validateUserSignUp, userVlidation, createUser)
@@ -49,10 +49,23 @@ router.post(
         .status(401)
         .json({ success: false, message: "unauthorised access!" })
 
-    const profileBuffer = req.file.buffer
-    const imageInfo = await Sharp(profileBuffer).metadata()
-    console.log(imageInfo)
-    res.send("ok")
+    try {
+      const profileBuffer = req.file.buffer
+      const { width, height } = await sharp(profileBuffer).metadata()
+      const avatar = await sharp(profileBuffer)
+        .resize(Math.round(width * 0.5), Math.round(height * 0.5))
+        .toBuffer()
+
+      await User.findByIdAndUpdate(user._id, { avatar })
+      res
+        .status(201)
+        .json({ success: true, message: "Your profile has updated" })
+    } catch (error) {
+      res
+        .status(500)
+        .json({ success: false, message: "Server error, try again" })
+      console.log("Error while uploading image", error.message)
+    }
   }
 )
 
