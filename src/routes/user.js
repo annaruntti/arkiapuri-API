@@ -4,7 +4,7 @@ const router = express.Router()
 const {
   createUser,
   userSignIn,
-  // uploadProfile,
+  uploadProfile,
   // uploadGroceryImage,
   signOut,
 } = require("../controllers/user")
@@ -17,11 +17,11 @@ const {
 
 const User = require("../models/user")
 
-const sharp = require("sharp")
+// const sharp = require("sharp")
 
 const multer = require("multer")
 
-const storage = multer.memoryStorage()
+const storage = multer.diskStorage({})
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith("image")) {
@@ -38,36 +38,7 @@ router.post("/sign-out", isAuth, signOut)
 
 // router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
-router.post(
-  "/upload-profile",
-  isAuth,
-  uploads.single("profile"),
-  async (req, res) => {
-    const { user } = req
-    if (!user)
-      return res
-        .status(401)
-        .json({ success: false, message: "unauthorised access!" })
-
-    try {
-      const profileBuffer = req.file.buffer
-      const { width, height } = await sharp(profileBuffer).metadata()
-      const avatar = await sharp(profileBuffer)
-        .resize(Math.round(width * 0.5), Math.round(height * 0.5))
-        .toBuffer()
-
-      await User.findByIdAndUpdate(user._id, { avatar })
-      res
-        .status(201)
-        .json({ success: true, message: "Your profile has updated" })
-    } catch (error) {
-      res
-        .status(500)
-        .json({ success: false, message: "Server error, try again" })
-      console.log("Error while uploading image", error.message)
-    }
-  }
-)
+router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
 router.post("/create-grocery", isAuth, (req, res) => {
   // continue later
