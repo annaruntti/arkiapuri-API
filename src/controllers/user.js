@@ -81,11 +81,7 @@ exports.uploadProfile = async (req, res) => {
       crop: "fill",
     })
 
-    const updatedUser = await User.findByIdAndUpdate(
-      user._id,
-      { avatar: result.url },
-      { new: true }
-    )
+    await User.findByIdAndUpdate(user._id, { avatar: result.url })
     res
       .status(201)
       .json({ success: true, message: "Your profile has updated!" })

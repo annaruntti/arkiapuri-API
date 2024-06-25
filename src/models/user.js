@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  avatar: Buffer,
+  avatar: String,
 })
 
 userSchema.pre("save", function (next) {

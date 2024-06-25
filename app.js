@@ -1,4 +1,6 @@
 const express = require("express")
+const cors = require("cors")
+
 require("dotenv").config()
 require("./src/models/db")
 
@@ -7,6 +9,9 @@ const userRouter = require("./src/routes/user")
 const User = require("./src/models/user")
 
 const app = express()
+
+// Use CORS middleware
+app.use(cors())
 
 // app.use((req, res, next) => {
 //   req.on("data", (chunk) => {
@@ -38,6 +43,6 @@ app.get("/", (req, res) => {
   res.json({ success: true, message: "Testi testi" })
 })
 
-app.listen(8000, () => {
+app.listen(3001, () => {
   console.log("port is listening")
 })
