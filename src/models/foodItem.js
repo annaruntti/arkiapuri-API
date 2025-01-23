@@ -6,7 +6,7 @@ const foodItemSchema = new mongoose.Schema({
     required: true,
   },
   category: {
-    type: String,
+    type: [String],
     required: true,
   },
   quantity: {

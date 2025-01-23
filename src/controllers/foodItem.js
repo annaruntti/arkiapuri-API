@@ -1,10 +1,14 @@
 const FoodItem = require("../models/foodItem")
 
 exports.createFoodItem = async (req, res) => {
-  const { name, calories } = req.body
+  const { name, category, quantity, expireDay, price, calories } = req.body
 
   const foodItem = new FoodItem({
     name,
+    category,
+    quantity,
+    expireDay,
+    price,
     calories,
   })
 

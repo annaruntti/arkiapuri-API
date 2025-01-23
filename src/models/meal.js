@@ -5,6 +5,16 @@ const mealSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  recipe: {
+    type: String,
+  },
+  difficultyLevel: {
+    type: String,
+    enum: ["easy", "medium", "hard"],
+  },
+  cookingTime: {
+    type: Number,
+  },
   foodItems: [
     {
       type: mongoose.Schema.Types.ObjectId,
