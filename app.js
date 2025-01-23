@@ -5,6 +5,8 @@ require("dotenv").config()
 require("./src/models/db")
 
 const userRouter = require("./src/routes/user")
+const mealRouter = require("./src/routes/meal")
+const foodItemRouter = require("./src/routes/foodItem")
 
 const User = require("./src/models/user")
 
@@ -12,22 +14,12 @@ const app = express()
 
 // Use CORS middleware
 app.use(cors())
-
-// app.use((req, res, next) => {
-//   req.on("data", (chunk) => {
-//     const data = JSON.parse(chunk)
-//     req.body = data
-//     next()
-//   })
-// })
-
-// app.get("/test", (req, res) => {
-//   res.send("Testi1")
-// })
-
+// Use JSON middleware
 app.use(express.json())
 
 app.use(userRouter)
+app.use(mealRouter)
+app.use(foodItemRouter)
 
 const test = async (email, password) => {
   const user = await User.findOne({ email: email })
