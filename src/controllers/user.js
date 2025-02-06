@@ -63,7 +63,12 @@ exports.userSignIn = async (req, res) => {
     avatar: user.avatar ? user.avatar : "",
   }
 
-  res.json({ success: true, user: userInfo, token })
+  const populatedUser = await User.findById(user._id)
+    .select("-password")
+    .populate("foodItems")
+    .populate("meals")
+
+  res.json({ success: true, user: populatedUser, token })
 }
 
 exports.uploadProfile = async (req, res) => {
@@ -108,5 +113,37 @@ exports.signOut = async (req, res) => {
 
     await User.findByIdAndUpdate(req.user._id, { tokens: newTokens })
     res.json({ success: true, message: "Sign out successfully!" })
+  }
+}
+
+exports.getUserProfile = async (req, res) => {
+  try {
+    // Find user and populate their food items and meals
+    const user = await User.findById(req.user._id)
+      .select("-password") // Exclude password
+      .populate("foodItems")
+      .populate({
+        path: "meals",
+        populate: {
+          path: "foodItems", // Populate food items within meals
+        },
+      })
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      })
+    }
+
+    res.json({
+      success: true,
+      user,
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    })
   }
 }

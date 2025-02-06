@@ -16,7 +16,21 @@ const userSchema = new mongoose.Schema({
     required: true,
   },
   avatar: String,
+  foodItems: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FoodItem",
+    },
+  ],
+  meals: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Meal",
+    },
+  ],
 })
+
+userSchema.index({ email: 1 })
 
 userSchema.pre("save", function (next) {
   if (this.isModified("password")) {
@@ -30,7 +44,7 @@ userSchema.pre("save", function (next) {
 })
 
 userSchema.methods.comparePassword = async function (password) {
-  if (!password) throw new Error("Password is mission, can not compare!")
+  if (!password) throw new Error("Password is missing")
 
   try {
     const result = await bcrypt.compare(password, this.password)

@@ -7,6 +7,7 @@ const {
   uploadProfile,
   // uploadGroceryImage,
   signOut,
+  getUserProfile,
 } = require("../controllers/user")
 const { isAuth } = require("../middlewares/auth")
 const {
@@ -38,10 +39,7 @@ router.post("/sign-out", isAuth, signOut)
 
 router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
-router.post("/create-grocery", isAuth, (req, res) => {
-  // continue later
-  res.send("you are in secret route now")
-})
+router.get("/profile", isAuth, getUserProfile)
 
 // router.post(
 //   "/upload-grocery-image",

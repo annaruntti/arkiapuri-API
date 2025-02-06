@@ -22,6 +22,13 @@ const foodItemSchema = new mongoose.Schema({
   calories: {
     type: Number,
   },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
 })
+
+foodItemSchema.index({ user: 1 })
 
 module.exports = mongoose.model("FoodItem", foodItemSchema)

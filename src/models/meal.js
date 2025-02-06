@@ -21,6 +21,13 @@ const mealSchema = new mongoose.Schema({
       ref: "FoodItem",
     },
   ],
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
 })
+
+mealSchema.index({ user: 1 })
 
 module.exports = mongoose.model("Meal", mealSchema)
