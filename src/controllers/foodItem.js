@@ -3,20 +3,34 @@ const User = require("../models/user")
 
 exports.createFoodItem = async (req, res) => {
   try {
-    const { name, category, quantity, expireDay, price, calories } = req.body
+    const {
+      name,
+      category,
+      quantity,
+      price,
+      calories,
+      location,
+      listId,
+      expirationDate,
+      unit,
+    } = req.body
 
     const foodItem = new FoodItem({
       name,
       category,
       quantity,
-      expireDay,
       price,
       calories,
       user: req.user._id,
+      location: location,
+      listId: listId || null,
+      expirationDate,
+      unit,
     })
 
     await foodItem.save()
 
+    // Add reference to user's foodItems
     await User.findByIdAndUpdate(req.user._id, {
       $push: { foodItems: foodItem._id },
     })
@@ -29,7 +43,15 @@ exports.createFoodItem = async (req, res) => {
 
 exports.getFoodItems = async (req, res) => {
   try {
-    const foodItems = await FoodItem.find({ user: req.user._id })
+    const { location } = req.query
+    const query = { user: req.user._id }
+
+    // Filter by location if provided
+    if (location) {
+      query.location = location
+    }
+
+    const foodItems = await FoodItem.find(query)
     res.json({ success: true, foodItems })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
@@ -56,7 +78,7 @@ exports.updateFoodItem = async (req, res) => {
     if (!foodItem) {
       return res.status(404).json({
         success: false,
-        message: "Food item not found or you don't have permission",
+        message: "Food item not found or unauthorized",
       })
     }
 
@@ -76,7 +98,7 @@ exports.deleteFoodItem = async (req, res) => {
     if (!foodItem) {
       return res.status(404).json({
         success: false,
-        message: "Food item not found or you don't have permission",
+        message: "Food item not found or unauthorized",
       })
     }
 
@@ -88,5 +110,34 @@ exports.deleteFoodItem = async (req, res) => {
     res.json({ success: true, message: "Food item deleted successfully" })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
+  }
+}
+
+// New helper method to move items between locations
+exports.moveFoodItem = async (req, res) => {
+  try {
+    const { id } = req.params
+    const { location, listId, expirationDate } = req.body
+
+    const foodItem = await FoodItem.findOneAndUpdate(
+      { _id: id, user: req.user._id },
+      {
+        location,
+        listId: listId || null,
+        expirationDate: location === "pantry" ? expirationDate : null,
+      },
+      { new: true }
+    )
+
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found or unauthorized",
+      })
+    }
+
+    res.json({ success: true, foodItem })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
   }
 }
