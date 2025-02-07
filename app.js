@@ -7,6 +7,8 @@ require("./src/models/db")
 const userRouter = require("./src/routes/user")
 const mealRouter = require("./src/routes/meal")
 const foodItemRouter = require("./src/routes/foodItem")
+const shoppingListRouter = require("./src/routes/shoppingList")
+const pantryRouter = require("./src/routes/pantry")
 
 const User = require("./src/models/user")
 
@@ -21,6 +23,8 @@ app.use(express.json())
 app.use(userRouter)
 app.use(mealRouter)
 app.use(foodItemRouter)
+app.use(shoppingListRouter)
+app.use(pantryRouter)
 
 // const test = async (email, password) => {
 //   const user = await User.findOne({ email: email })
