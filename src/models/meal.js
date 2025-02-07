@@ -1,6 +1,11 @@
 const mongoose = require("mongoose")
 
 const mealSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true,
+    unique: true,
+  },
   name: {
     type: String,
     required: true,
@@ -15,6 +20,17 @@ const mealSchema = new mongoose.Schema({
   cookingTime: {
     type: Number,
   },
+  defaultRole: {
+    type: String,
+    enum: ["breakfast", "lunch", "snack", "dinner", "supper"],
+  },
+  plannedCookingDate: {
+    type: Date,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
   foodItems: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -28,6 +44,6 @@ const mealSchema = new mongoose.Schema({
   },
 })
 
-mealSchema.index({ user: 1 })
+mealSchema.index({ user: 1, id: 1 }, { unique: true })
 
 module.exports = mongoose.model("Meal", mealSchema)

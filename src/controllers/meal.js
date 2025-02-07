@@ -4,7 +4,33 @@ const FoodItem = require("../models/foodItem")
 
 exports.createMeal = async (req, res) => {
   try {
-    const { name, recipe, difficultyLevel, cookingTime, foodItems } = req.body
+    const {
+      id,
+      name,
+      recipe,
+      difficultyLevel,
+      cookingTime,
+      foodItems,
+      defaultRole,
+      plannedCookingDate,
+      createdAt,
+    } = req.body
+
+    // Validate required fields
+    if (!id || !name || !recipe) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      })
+    }
+
+    // Validate date format
+    if (!Date.parse(plannedCookingDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid plannedCookingDate format",
+      })
+    }
 
     // Validate foodItems and ensure they belong to the user
     const validFoodItems = await FoodItem.find({
@@ -20,12 +46,16 @@ exports.createMeal = async (req, res) => {
     }
 
     const meal = new Meal({
+      id,
       name,
       recipe,
       difficultyLevel,
       cookingTime,
       foodItems,
+      defaultRole,
+      plannedCookingDate,
       user: req.user._id, // Authenticated user's ID
+      createdAt,
     })
 
     await meal.save()
