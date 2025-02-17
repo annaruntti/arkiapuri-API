@@ -1,27 +1,27 @@
 const mongoose = require("mongoose")
 
 const shoppingListItemSchema = new mongoose.Schema({
-  foodId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "FoodItem",
-    required: true,
-  },
   name: {
     type: String,
     required: true,
   },
-  quantity: {
+  estimatedPrice: {
     type: Number,
-    required: true,
     min: 0,
   },
-  unit: {
-    type: String,
-    required: true,
+  quantity: {
+    type: Number,
+    default: 1,
+    min: 0,
   },
   bought: {
     type: Boolean,
     default: false,
+  },
+  // Reference to FoodItem if it exists
+  foodId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "FoodItem",
   },
 })
 
@@ -36,7 +36,14 @@ const shoppingListSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    description: {
+      type: String,
+    },
     items: [shoppingListItemSchema],
+    totalEstimatedPrice: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true, // This will add createdAt and updatedAt automatically

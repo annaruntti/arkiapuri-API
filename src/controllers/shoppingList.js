@@ -3,12 +3,19 @@ const Pantry = require("../models/pantry")
 
 exports.createShoppingList = async (req, res) => {
   try {
-    const { name, items } = req.body
+    const { name, description, items, totalEstimatedPrice } = req.body
 
     const shoppingList = new ShoppingList({
       userId: req.user._id,
       name,
-      items,
+      description,
+      items: items.map((item) => ({
+        name: item.name,
+        estimatedPrice: item.estimatedPrice,
+        quantity: item.quantity || 1,
+        bought: false,
+      })),
+      totalEstimatedPrice,
     })
 
     await shoppingList.save()
@@ -20,7 +27,9 @@ exports.createShoppingList = async (req, res) => {
 
 exports.getShoppingLists = async (req, res) => {
   try {
-    const shoppingLists = await ShoppingList.find({ userId: req.user._id })
+    const shoppingLists = await ShoppingList.find({
+      userId: req.user._id,
+    }).sort({ createdAt: -1 }) // Most recent first
     res.json({ success: true, shoppingLists })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
