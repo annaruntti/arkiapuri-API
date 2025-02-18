@@ -2,7 +2,7 @@ const express = require("express")
 const { isAuth } = require("../middlewares/auth")
 const {
   getPantry,
-  addPantryItem,
+  addItemsToPantry,
   updatePantryItem,
   removePantryItem,
 } = require("../controllers/pantry")
@@ -10,7 +10,7 @@ const {
 const router = express.Router()
 
 router.get("/pantry", isAuth, getPantry)
-router.post("/pantry/items", isAuth, addPantryItem)
+router.post("/pantry/add-items", isAuth, addItemsToPantry)
 router.put("/pantry/items/:itemId", isAuth, updatePantryItem)
 router.delete("/pantry/items/:itemId", isAuth, removePantryItem)
 

@@ -39,11 +39,14 @@ exports.getShoppingLists = async (req, res) => {
 exports.updateShoppingList = async (req, res) => {
   try {
     const { id } = req.params
-    const update = req.body
+    const { items, totalEstimatedPrice } = req.body
 
     const shoppingList = await ShoppingList.findOneAndUpdate(
       { _id: id, userId: req.user._id },
-      update,
+      {
+        items,
+        totalEstimatedPrice,
+      },
       { new: true }
     )
 

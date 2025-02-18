@@ -1,27 +1,39 @@
 const mongoose = require("mongoose")
 
 const pantryItemSchema = new mongoose.Schema({
-  foodId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "FoodItem",
-    required: true,
-  },
   name: {
     type: String,
     required: true,
+    trim: true, // Remove whitespace
   },
   quantity: {
     type: Number,
     required: true,
     min: 0,
-  },
-  unit: {
-    type: String,
-    required: true,
+    default: 1,
   },
   expirationDate: {
     type: Date,
     required: true,
+    default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  },
+  // Optional fields for future use
+  foodId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "FoodItem",
+  },
+  category: {
+    type: [String],
+    default: [],
+  },
+  notes: {
+    type: String,
+    trim: true,
+  },
+  addedFrom: {
+    type: String,
+    enum: ["pantry", "shopping-list"],
+    default: "pantry",
   },
 })
 
@@ -39,6 +51,33 @@ const pantrySchema = new mongoose.Schema(
   }
 )
 
+// Indexes
 pantrySchema.index({ userId: 1 })
+pantrySchema.index({ "items.expirationDate": 1 })
+pantrySchema.index({ "items.name": 1 })
+
+// Helper methods
+pantrySchema.methods.getExpiringItems = function (days = 7) {
+  const expirationDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  return this.items.filter(
+    (item) =>
+      item.expirationDate <= expirationDate && item.expirationDate > new Date()
+  )
+}
+
+pantrySchema.methods.findItem = function (itemName) {
+  return this.items.find(
+    (item) => item.name.toLowerCase() === itemName.toLowerCase()
+  )
+}
+
+pantrySchema.methods.updateItemQuantity = function (itemId, quantity) {
+  const item = this.items.id(itemId)
+  if (item) {
+    item.quantity = Math.max(0, quantity)
+    return true
+  }
+  return false
+}
 
 module.exports = mongoose.model("Pantry", pantrySchema)
