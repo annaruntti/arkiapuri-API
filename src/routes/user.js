@@ -5,7 +5,6 @@ const {
   createUser,
   userSignIn,
   uploadProfile,
-  // uploadGroceryImage,
   signOut,
   getUserProfile,
 } = require("../controllers/user")
@@ -17,8 +16,6 @@ const {
 } = require("../middlewares/validation/user")
 
 const User = require("../models/user")
-
-// const sharp = require("sharp")
 
 const multer = require("multer")
 
@@ -40,12 +37,5 @@ router.post("/sign-out", isAuth, signOut)
 router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
 router.get("/profile", isAuth, getUserProfile)
-
-// router.post(
-//   "/upload-grocery-image",
-//   isAuth,
-//   uploads.single("grocery-image"),
-//   uploadGroceryImage
-// )
 
 module.exports = router
