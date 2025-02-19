@@ -12,12 +12,15 @@ const pantryItemSchema = new mongoose.Schema({
     min: 0,
     default: 1,
   },
+  unit: {
+    type: String,
+    required: true,
+    default: "kpl",
+  },
   expirationDate: {
     type: Date,
-    required: true,
     default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   },
-  // Optional fields for future use
   foodId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "FoodItem",
@@ -25,6 +28,14 @@ const pantryItemSchema = new mongoose.Schema({
   category: {
     type: [String],
     default: [],
+  },
+  calories: {
+    type: Number,
+    default: 0,
+  },
+  price: {
+    type: Number,
+    default: 0,
   },
   notes: {
     type: String,

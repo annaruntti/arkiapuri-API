@@ -26,11 +26,21 @@ app.use(foodItemRouter)
 app.use(shoppingListRouter)
 app.use(pantryRouter)
 
-// const test = async (email, password) => {
-//   const user = await User.findOne({ email: email })
-//   const result = await user.comparePassword(password)
-//   console.log(result)
-// }
+// Development route to see all registered routes
+if (process.env.NODE_ENV === "development") {
+  app.get("/debug/routes", (req, res) => {
+    const routes = []
+    app._router.stack.forEach((middleware) => {
+      if (middleware.route) {
+        routes.push({
+          path: middleware.route.path,
+          methods: Object.keys(middleware.route.methods),
+        })
+      }
+    })
+    res.json(routes)
+  })
+}
 
 // Basic health check routes
 app.get("/health", (req, res) => {

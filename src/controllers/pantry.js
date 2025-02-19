@@ -1,4 +1,5 @@
 const Pantry = require("../models/pantry")
+const FoodItem = require("../models/foodItem")
 
 // Helper function to validate item data
 const validateItemData = (item) => {
@@ -23,24 +24,213 @@ const validateItemData = (item) => {
   return errors
 }
 
+// Get pantry
 exports.getPantry = async (req, res) => {
   try {
-    let pantry = await Pantry.findOne({ userId: req.user._id })
+    let pantry = await Pantry.findOne({ userId: req.user._id }).populate({
+      path: "items.foodId",
+      select: "category unit calories price",
+    })
+
     if (!pantry) {
       pantry = new Pantry({ userId: req.user._id, items: [] })
       await pantry.save()
     }
 
-    // Get expiring items
-    const expiringItems = pantry.getExpiringItems(7)
+    // Merge food item data with pantry items
+    const processedItems = pantry.items.map((item) => {
+      const foodItemData = item.foodId || {}
+      return {
+        ...item.toObject(),
+        category: foodItemData.category || item.category || [],
+        unit: foodItemData.unit || item.unit || "kpl",
+        calories: foodItemData.calories || item.calories || 0,
+        price: foodItemData.price || item.price || 0,
+      }
+    })
+
+    res.json({
+      success: true,
+      pantry: {
+        ...pantry.toObject(),
+        items: processedItems,
+      },
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+}
+
+// Add food item to pantry
+exports.addFoodItemToPantry = async (req, res) => {
+  try {
+    const { name, category, quantity, unit, price, calories, expirationDate } =
+      req.body
+
+    // Create or update food item
+    let foodItem = await FoodItem.findOne({
+      name: name.trim().toLowerCase(),
+      user: req.user._id,
+    })
+
+    if (!foodItem) {
+      foodItem = new FoodItem({
+        name,
+        category,
+        quantity: 1,
+        unit,
+        price,
+        calories,
+        user: req.user._id,
+        location: "pantry",
+      })
+      await foodItem.save()
+    } else {
+      foodItem.category = category
+      foodItem.unit = unit
+      foodItem.price = price
+      foodItem.calories = calories
+      foodItem.location = "pantry"
+      await foodItem.save()
+    }
+
+    let pantry = await Pantry.findOne({ userId: req.user._id })
+    if (!pantry) {
+      pantry = new Pantry({ userId: req.user._id, items: [] })
+    }
+
+    const existingItem = pantry.items.find(
+      (item) => item.foodId?.toString() === foodItem._id.toString()
+    )
+
+    if (existingItem) {
+      // Update existing pantry item
+      existingItem.quantity += quantity
+      existingItem.unit = foodItem.unit
+      existingItem.category = foodItem.category
+      existingItem.calories = foodItem.calories
+      existingItem.price = foodItem.price
+      if (expirationDate) {
+        existingItem.expirationDate = expirationDate
+      }
+    } else {
+      // Add new pantry item with all fields
+      pantry.items.push({
+        foodId: foodItem._id,
+        name: foodItem.name,
+        quantity,
+        unit: foodItem.unit,
+        category: foodItem.category,
+        calories: foodItem.calories,
+        price: foodItem.price,
+        expirationDate:
+          expirationDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      })
+    }
+
+    await pantry.save()
 
     res.json({
       success: true,
       pantry,
-      expiringItems: expiringItems.length > 0 ? expiringItems : null,
+      foodItem,
     })
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// Update pantry item
+exports.updatePantryItem = async (req, res) => {
+  try {
+    const { itemId } = req.params
+    const update = req.body
+
+    const pantry = await Pantry.findOne({ userId: req.user._id })
+    if (!pantry) {
+      return res.status(404).json({
+        success: false,
+        message: "Pantry not found",
+      })
+    }
+
+    const item = pantry.items.id(itemId)
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in pantry",
+      })
+    }
+
+    Object.assign(item, update)
+    await pantry.save()
+
+    res.json({ success: true, pantry })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// Remove pantry item
+exports.removePantryItem = async (req, res) => {
+  try {
+    const { itemId } = req.params
+
+    const pantry = await Pantry.findOne({ userId: req.user._id })
+    if (!pantry) {
+      return res.status(404).json({
+        success: false,
+        message: "Pantry not found",
+      })
+    }
+
+    pantry.items.pull(itemId)
+    await pantry.save()
+
+    res.json({ success: true, message: "Item removed from pantry" })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// Move items from shopping list to pantry
+exports.moveToPantry = async (req, res) => {
+  try {
+    const { shoppingListId, items } = req.body
+
+    let pantry = await Pantry.findOne({ userId: req.user._id })
+    if (!pantry) {
+      pantry = new Pantry({ userId: req.user._id, items: [] })
+    }
+
+    // Process each item
+    for (const item of items) {
+      const foodItem = await FoodItem.findById(item.foodItemId)
+      if (!foodItem) continue
+
+      foodItem.location = "pantry"
+      await foodItem.save()
+
+      const existingItem = pantry.items.find(
+        (pItem) => pItem.foodId?.toString() === item.foodItemId
+      )
+
+      if (existingItem) {
+        existingItem.quantity += item.quantity || 1
+      } else {
+        pantry.items.push({
+          foodId: foodItem._id,
+          name: foodItem.name,
+          quantity: item.quantity || 1,
+          expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        })
+      }
+    }
+
+    await pantry.save()
+    res.json({ success: true, pantry })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
   }
 }
 
@@ -151,88 +341,6 @@ exports.addItemsToPantry = async (req, res) => {
         added: processedItems.length,
         updated: updatedItems.length,
       },
-    })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-exports.updatePantryItem = async (req, res) => {
-  try {
-    const { itemId } = req.params
-    const update = req.body
-
-    // Validate update data
-    const errors = validateItemData(update)
-    if (errors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        errors,
-      })
-    }
-
-    const pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      return res.status(404).json({
-        success: false,
-        message: "Pantry not found",
-      })
-    }
-
-    const item = pantry.items.id(itemId)
-    if (!item) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in pantry",
-      })
-    }
-
-    // Update fields
-    Object.assign(item, update)
-
-    // Remove if quantity is 0
-    if (item.quantity <= 0) {
-      pantry.items.pull(itemId)
-    }
-
-    await pantry.save()
-    res.json({
-      success: true,
-      pantry,
-      removed: item.quantity <= 0,
-    })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-exports.removePantryItem = async (req, res) => {
-  try {
-    const { itemId } = req.params
-
-    const pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      return res.status(404).json({
-        success: false,
-        message: "Pantry not found",
-      })
-    }
-
-    const item = pantry.items.id(itemId)
-    if (!item) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in pantry",
-      })
-    }
-
-    pantry.items.pull(itemId)
-    await pantry.save()
-
-    res.json({
-      success: true,
-      message: "Item removed from pantry",
-      removedItem: item,
     })
   } catch (error) {
     res.status(400).json({ success: false, error: error.message })
