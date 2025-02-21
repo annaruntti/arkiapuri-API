@@ -7,6 +7,7 @@ const {
   uploadProfile,
   signOut,
   getUserProfile,
+  uploadProfileImage,
 } = require("../controllers/user")
 const { isAuth } = require("../middlewares/auth")
 const {
@@ -37,5 +38,12 @@ router.post("/sign-out", isAuth, signOut)
 router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
 router.get("/profile", isAuth, getUserProfile)
+
+router.post(
+  "/profile/image",
+  isAuth,
+  uploads.single("profileImage"),
+  uploadProfileImage
+)
 
 module.exports = router

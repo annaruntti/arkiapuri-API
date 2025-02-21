@@ -2,6 +2,16 @@ const jwt = require("jsonwebtoken")
 const User = require("../models/user")
 const sharp = require("sharp")
 const cloudinary = require("../helper/imageUpload")
+const cloudinaryV2 = require("cloudinary").v2
+const { Readable } = require("stream")
+const fs = require("fs")
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_USER_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_KEY_SECRET,
+})
 
 exports.createUser = async (req, res) => {
   const { username, email, password } = req.body
@@ -143,6 +153,72 @@ exports.getUserProfile = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
+      error: error.message,
+    })
+  }
+}
+
+exports.uploadProfileImage = async (req, res) => {
+  try {
+    console.log("Uploaded file:", req.file)
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      })
+    }
+
+    // Check Cloudinary credentials
+    if (
+      !process.env.CLOUDINARY_USER_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_KEY_SECRET
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: "Cloud storage not configured",
+      })
+    }
+
+    try {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "profile-images",
+        use_filename: true,
+      })
+
+      // Update user profile
+      const user = await User.findByIdAndUpdate(
+        req.user._id,
+        {
+          profileImage: {
+            url: result.secure_url,
+            publicId: result.public_id,
+          },
+        },
+        { new: true }
+      ).select("-password")
+
+      // Clean up the uploaded file
+      fs.unlinkSync(req.file.path)
+
+      res.json({
+        success: true,
+        user,
+      })
+    } catch (uploadError) {
+      // Clean up the uploaded file in case of error
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+      throw uploadError
+    }
+  } catch (error) {
+    console.error("Upload error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Image upload failed",
       error: error.message,
     })
   }

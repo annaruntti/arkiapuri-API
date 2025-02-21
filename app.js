@@ -1,5 +1,7 @@
 const express = require("express")
 const cors = require("cors")
+const fs = require("fs")
+const path = require("path")
 
 require("dotenv").config()
 require("./src/models/db")
@@ -18,6 +20,12 @@ const app = express()
 app.use(cors())
 // Use JSON middleware
 app.use(express.json())
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, "uploads")
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir)
+}
 
 // API routes
 app.use(userRouter)

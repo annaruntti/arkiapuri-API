@@ -1,34 +1,43 @@
 const mongoose = require("mongoose")
 const bcrypt = require("bcrypt")
 
-const userSchema = new mongoose.Schema({
-  username: {
-    type: String,
-    required: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  password: {
-    type: String,
-    required: true,
-  },
-  avatar: String,
-  foodItems: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "FoodItem",
+const userSchema = new mongoose.Schema(
+  {
+    username: {
+      type: String,
+      required: true,
     },
-  ],
-  meals: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Meal",
+    email: {
+      type: String,
+      required: true,
+      unique: true,
     },
-  ],
-})
+    password: {
+      type: String,
+      required: true,
+    },
+    avatar: String,
+    foodItems: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "FoodItem",
+      },
+    ],
+    meals: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Meal",
+      },
+    ],
+    profileImage: {
+      url: String,
+      publicId: String,
+    },
+  },
+  {
+    timestamps: true,
+  }
+)
 
 userSchema.index({ email: 1 })
 
