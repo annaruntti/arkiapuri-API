@@ -1,21 +1,32 @@
 const express = require("express")
+const { isAuth } = require("../middlewares/auth")
 const {
-  createFoodItem,
   getFoodItems,
-  getFoodItemById,
+  createFoodItem,
   updateFoodItem,
   deleteFoodItem,
-  moveFoodItem,
+  updateQuantity,
+  moveItem,
 } = require("../controllers/foodItem")
-const { isAuth } = require("../middlewares/auth")
 
 const router = express.Router()
 
-router.post("/foodItems", isAuth, createFoodItem)
-router.get("/foodItems", isAuth, getFoodItems)
-router.get("/foodItems/:id", isAuth, getFoodItemById)
-router.put("/foodItems/:id", isAuth, updateFoodItem)
-router.delete("/foodItems/:id", isAuth, deleteFoodItem)
-router.put("/foodItems/:id/move", isAuth, moveFoodItem)
+// Get all food items
+router.get("/food-items", isAuth, getFoodItems)
+
+// Create new food item
+router.post("/food-items", isAuth, createFoodItem)
+
+// Update food item
+router.put("/food-items/:id", isAuth, updateFoodItem)
+
+// Delete food item
+router.delete("/food-items/:id", isAuth, deleteFoodItem)
+
+// Update quantity in a specific location
+router.put("/food-items/:foodItemId/quantity", isAuth, updateQuantity)
+
+// Move item between locations
+router.post("/food-items/:foodItemId/move", isAuth, moveItem)
 
 module.exports = router

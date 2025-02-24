@@ -228,3 +228,118 @@ exports.getFoodItemsByLocation = async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 }
+
+exports.updateQuantity = async (req, res) => {
+  try {
+    const { foodItemId } = req.params
+    const { location, quantity, action = "set" } = req.body
+
+    if (!["meal", "shopping-list", "pantry"].includes(location)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid location",
+      })
+    }
+
+    const foodItem = await FoodItem.findOne({
+      _id: foodItemId,
+      user: req.user._id,
+    })
+
+    if (!foodItem) {
+      return res.status(400).json({
+        success: false,
+        message: "Food item not found",
+      })
+    }
+
+    // Handle different quantity update actions
+    switch (action) {
+      case "add":
+        foodItem.quantities[location] += quantity
+        break
+      case "subtract":
+        foodItem.quantities[location] = Math.max(
+          0,
+          foodItem.quantities[location] - quantity
+        )
+        break
+      case "set":
+        foodItem.quantities[location] = Math.max(0, quantity)
+        break
+      default:
+        return res.status(400).json({
+          success: false,
+          message: "Invalid action",
+        })
+    }
+
+    await foodItem.save()
+
+    res.json({
+      success: true,
+      foodItem,
+      message: `Quantity ${action}ed in ${location}`,
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    })
+  }
+}
+
+// Route to move items between locations
+exports.moveItem = async (req, res) => {
+  try {
+    const { foodItemId } = req.params
+    const { fromLocation, toLocation, quantity } = req.body
+
+    if (
+      !["meal", "shopping-list", "pantry"].includes(fromLocation) ||
+      !["meal", "shopping-list", "pantry"].includes(toLocation)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid location",
+      })
+    }
+
+    const foodItem = await FoodItem.findOne({
+      _id: foodItemId,
+      user: req.user._id,
+    })
+
+    if (!foodItem) {
+      return res.status(400).json({
+        success: false,
+        message: "Food item not found",
+      })
+    }
+
+    // Check is there enough quantity in source location
+    if (foodItem.quantities[fromLocation] < quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Not enough quantity in ${fromLocation}`,
+      })
+    }
+
+    // Move quantity between locations
+    foodItem.quantities[fromLocation] -= quantity
+    foodItem.quantities[toLocation] += quantity
+
+    await foodItem.save()
+
+    res.json({
+      success: true,
+      foodItem,
+      message: `Moved ${quantity} from ${fromLocation} to ${toLocation}`,
+    })
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    })
+  }
+}
