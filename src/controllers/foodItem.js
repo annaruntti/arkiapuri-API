@@ -141,3 +141,90 @@ exports.moveFoodItem = async (req, res) => {
     res.status(400).json({ success: false, error: error.message })
   }
 }
+
+// When adding to meal plan
+exports.addToMeal = async (req, res) => {
+  try {
+    const { foodItemId, quantity } = req.body
+
+    const foodItem = await FoodItem.findById(foodItemId)
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found",
+      })
+    }
+
+    // Update meal quantity
+    foodItem.quantities.meal += quantity
+    await foodItem.save()
+
+    res.json({ success: true, foodItem })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// When adding to shopping list
+exports.addToShoppingList = async (req, res) => {
+  try {
+    const { foodItemId, quantity } = req.body
+
+    const foodItem = await FoodItem.findById(foodItemId)
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found",
+      })
+    }
+
+    // Update shopping list quantity
+    foodItem.quantities["shopping-list"] += quantity
+    await foodItem.save()
+
+    res.json({ success: true, foodItem })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// When moving from shopping list to pantry
+exports.moveToShoppingListToPantry = async (req, res) => {
+  try {
+    const { foodItemId, quantity } = req.body
+
+    const foodItem = await FoodItem.findById(foodItemId)
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found",
+      })
+    }
+
+    // Decrease shopping list quantity and increase pantry quantity
+    foodItem.quantities["shopping-list"] -= quantity
+    foodItem.quantities.pantry += quantity
+    await foodItem.save()
+
+    res.json({ success: true, foodItem })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// Get food items by location
+exports.getFoodItemsByLocation = async (req, res) => {
+  try {
+    const { location } = req.params
+
+    const foodItems = await FoodItem.find({
+      user: req.user._id,
+      locations: location,
+      [`quantities.${location}`]: { $gt: 0 },
+    })
+
+    res.json({ success: true, foodItems })
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message })
+  }
+}

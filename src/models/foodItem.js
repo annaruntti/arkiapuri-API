@@ -5,17 +5,15 @@ const foodItemSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
     },
     category: {
       type: [String],
-      required: true,
+      default: [],
     },
-    quantity: {
-      type: Number,
+    unit: {
+      type: String,
       required: true,
-    },
-    expireDay: {
-      type: Date,
     },
     price: {
       type: Number,
@@ -28,21 +26,22 @@ const foodItemSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    location: {
-      type: String,
-      enum: ["pantry", "shopping-list"],
+    locations: [
+      {
+        type: String,
+        enum: ["meal", "shopping-list", "pantry"],
+      },
+    ],
+    quantities: {
+      meal: { type: Number, default: 0 },
+      "shopping-list": { type: Number, default: 0 },
+      pantry: { type: Number, default: 0 },
     },
-    listId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "ShoppingList",
-      default: null,
+    expireDay: {
+      type: Date,
     },
     expirationDate: {
       type: Date,
-    },
-    unit: {
-      type: String,
-      required: true,
     },
   },
   {
@@ -51,7 +50,19 @@ const foodItemSchema = new mongoose.Schema(
 )
 
 // Indexes for better query performance
-foodItemSchema.index({ user: 1, location: 1 })
-foodItemSchema.index({ user: 1, listId: 1 })
+foodItemSchema.index({ user: 1, locations: 1 })
+
+// Add method to update locations based on quantities
+foodItemSchema.methods.updateLocations = function () {
+  this.locations = Object.entries(this.quantities)
+    .filter(([_, quantity]) => quantity > 0)
+    .map(([location, _]) => location)
+}
+
+// Middleware to update locations before saving
+foodItemSchema.pre("save", function (next) {
+  this.updateLocations()
+  next()
+})
 
 module.exports = mongoose.model("FoodItem", foodItemSchema)
