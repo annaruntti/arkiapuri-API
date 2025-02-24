@@ -4,12 +4,10 @@ const path = require("path")
 // Configure multer for image upload
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    // Use absolute path to uploads directory
     const uploadsDir = path.join(__dirname, "../../uploads")
     cb(null, uploadsDir)
   },
   filename: function (req, file, cb) {
-    // Keep original filename extension
     const ext = path.extname(file.originalname)
     cb(null, `${Date.now()}${ext}`)
   },
@@ -32,6 +30,6 @@ const upload = multer({
     }
     cb(new Error("Only .png, .jpg, .jpeg, .heic and .heif format allowed!"))
   },
-})
+}).single("profileImage") // This is to specify the expected field name
 
 module.exports = upload
