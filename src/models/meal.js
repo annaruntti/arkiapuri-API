@@ -20,9 +20,10 @@ const mealSchema = new mongoose.Schema({
   cookingTime: {
     type: Number,
   },
-  defaultRole: {
-    type: String,
+  defaultRoles: {
+    type: [String],
     enum: ["breakfast", "lunch", "snack", "dinner", "supper"],
+    default: ["dinner"],
   },
   plannedCookingDate: {
     type: Date,
