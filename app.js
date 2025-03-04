@@ -11,6 +11,7 @@ const mealRouter = require("./src/routes/meal")
 const foodItemRouter = require("./src/routes/foodItem")
 const shoppingListRouter = require("./src/routes/shoppingList")
 const pantryRouter = require("./src/routes/pantry")
+const visionRouter = require("./src/routes/vision")
 
 const User = require("./src/models/user")
 
@@ -33,6 +34,7 @@ app.use(mealRouter)
 app.use(foodItemRouter)
 app.use(shoppingListRouter)
 app.use(pantryRouter)
+app.use(visionRouter)
 
 // Development route to see all registered routes
 if (process.env.NODE_ENV === "development") {
