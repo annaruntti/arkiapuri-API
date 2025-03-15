@@ -13,6 +13,8 @@ exports.createFoodItem = async (req, res) => {
       listId,
       expirationDate,
       unit,
+      quantities: requestQuantities,
+      locations,
     } = req.body
 
     const foodItem = new FoodItem({
@@ -25,6 +27,21 @@ exports.createFoodItem = async (req, res) => {
       location: location,
       listId: listId || null,
       expirationDate,
+      locations: locations || ["meal"],
+      quantities: {
+        meal:
+          location === "meal"
+            ? parseFloat(quantity) || 0
+            : parseFloat(requestQuantities?.meal) || 0,
+        "shopping-list":
+          location === "shopping-list"
+            ? parseFloat(quantity) || 0
+            : parseFloat(requestQuantities?.["shopping-list"]) || 0,
+        pantry:
+          location === "pantry"
+            ? parseFloat(quantity) || 0
+            : parseFloat(requestQuantities?.pantry) || 0,
+      },
       unit,
     })
 
@@ -37,6 +54,7 @@ exports.createFoodItem = async (req, res) => {
 
     res.json({ success: true, foodItem })
   } catch (error) {
+    console.error("Error creating food item:", error)
     res.status(400).json({ success: false, error: error.message })
   }
 }

@@ -35,7 +35,7 @@ exports.createMeal = async (req, res) => {
     // Validate foodItems and ensure they belong to the user
     const validFoodItems = await FoodItem.find({
       _id: { $in: foodItems },
-      user: req.user._id, // Only allow user's own food items
+      user: req.user._id,
     })
 
     if (validFoodItems.length !== foodItems.length) {
@@ -54,7 +54,7 @@ exports.createMeal = async (req, res) => {
       foodItems,
       defaultRole,
       plannedCookingDate,
-      user: req.user._id, // Authenticated user's ID
+      user: req.user._id,
       createdAt,
     })
 
@@ -63,7 +63,14 @@ exports.createMeal = async (req, res) => {
     // Update user's meals array
     await User.findByIdAndUpdate(req.user._id, { $push: { meals: meal._id } })
 
-    res.json({ success: true, meal })
+    // Get the populated meal to return
+    const populatedMeal = await Meal.findById(meal._id).populate({
+      path: "foodItems",
+      select:
+        "name quantity unit category calories price location quantities locations",
+    })
+
+    res.json({ success: true, meal: populatedMeal })
   } catch (error) {
     res.status(400).json({ success: false, error: error.message })
   }
@@ -71,8 +78,15 @@ exports.createMeal = async (req, res) => {
 
 exports.getMeals = async (req, res) => {
   try {
-    // Only get meals belonging to the authenticated user
-    const meals = await Meal.find({ user: req.user._id }).populate("foodItems")
+    // Get meals with populated food items, sorted by creation date
+    const meals = await Meal.find({ user: req.user._id })
+      .populate({
+        path: "foodItems",
+        select:
+          "name quantity unit category calories price location quantities locations",
+      })
+      .sort({ createdAt: -1 })
+
     res.json({ success: true, meals })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
@@ -81,7 +95,27 @@ exports.getMeals = async (req, res) => {
 
 exports.getMealById = async (req, res) => {
   try {
-    const meal = await Meal.findById(req.params.id).populate("foodItems")
+    const meal = await Meal.findById(req.params.id).populate({
+      path: "foodItems",
+      select:
+        "name quantity unit category calories price location quantities locations",
+    })
+
+    if (!meal) {
+      return res.status(404).json({
+        success: false,
+        message: "Meal not found",
+      })
+    }
+
+    // Verify the meal belongs to the user
+    if (meal.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to access this meal",
+      })
+    }
+
     res.json({ success: true, meal })
   } catch (error) {
     res.status(404).json({ success: false, error: error.message })
@@ -111,7 +145,11 @@ exports.updateMeal = async (req, res) => {
       { _id: req.params.id, user: req.user._id },
       req.body,
       { new: true }
-    )
+    ).populate({
+      path: "foodItems",
+      select:
+        "name quantity unit category calories price location quantities locations",
+    })
 
     if (!meal) {
       return res.status(404).json({
