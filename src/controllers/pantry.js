@@ -25,7 +25,7 @@ const validateItemData = (item) => {
 }
 
 // Get pantry
-exports.getPantry = async (req, res) => {
+const getPantry = async (req, res) => {
   try {
     let pantry = await Pantry.findOne({ userId: req.user._id }).populate({
       path: "items.foodId",
@@ -62,7 +62,7 @@ exports.getPantry = async (req, res) => {
 }
 
 // Add food item to pantry
-exports.addFoodItemToPantry = async (req, res) => {
+const addFoodItemToPantry = async (req, res) => {
   try {
     const { name, category, quantity, unit, price, calories, expirationDate } =
       req.body
@@ -141,7 +141,7 @@ exports.addFoodItemToPantry = async (req, res) => {
 }
 
 // Update pantry item
-exports.updatePantryItem = async (req, res) => {
+const updatePantryItem = async (req, res) => {
   try {
     const { itemId } = req.params
     const update = req.body
@@ -172,7 +172,7 @@ exports.updatePantryItem = async (req, res) => {
 }
 
 // Remove pantry item
-exports.removePantryItem = async (req, res) => {
+const removePantryItem = async (req, res) => {
   try {
     const { itemId } = req.params
 
@@ -194,47 +194,15 @@ exports.removePantryItem = async (req, res) => {
 }
 
 // Move items from shopping list to pantry
-exports.moveToPantry = async (req, res) => {
+const moveToPantry = async (req, res) => {
   try {
-    const { shoppingListId, items } = req.body
-
-    let pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      pantry = new Pantry({ userId: req.user._id, items: [] })
-    }
-
-    // Process each item
-    for (const item of items) {
-      const foodItem = await FoodItem.findById(item.foodItemId)
-      if (!foodItem) continue
-
-      foodItem.location = "pantry"
-      await foodItem.save()
-
-      const existingItem = pantry.items.find(
-        (pItem) => pItem.foodId?.toString() === item.foodItemId
-      )
-
-      if (existingItem) {
-        existingItem.quantity += item.quantity || 1
-      } else {
-        pantry.items.push({
-          foodId: foodItem._id,
-          name: foodItem.name,
-          quantity: item.quantity || 1,
-          expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        })
-      }
-    }
-
-    await pantry.save()
-    res.json({ success: true, pantry })
+    res.status(200).json({ message: "Items moved to pantry successfully" })
   } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
+    res.status(500).json({ error: error.message })
   }
 }
 
-exports.addPantryItem = async (req, res) => {
+const addPantryItem = async (req, res) => {
   try {
     const itemData = req.body
 
@@ -278,7 +246,7 @@ exports.addPantryItem = async (req, res) => {
   }
 }
 
-exports.addItemsToPantry = async (req, res) => {
+const addItemsToPantry = async (req, res) => {
   try {
     const { items } = req.body
 
@@ -345,4 +313,14 @@ exports.addItemsToPantry = async (req, res) => {
   } catch (error) {
     res.status(400).json({ success: false, error: error.message })
   }
+}
+
+module.exports = {
+  getPantry,
+  addFoodItemToPantry,
+  updatePantryItem,
+  removePantryItem,
+  moveToPantry,
+  addPantryItem,
+  addItemsToPantry,
 }

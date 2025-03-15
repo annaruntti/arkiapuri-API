@@ -1,5 +1,6 @@
 const ShoppingList = require("../models/shoppingList")
 const Pantry = require("../models/pantry")
+const FoodItem = require("../models/foodItem")
 
 exports.createShoppingList = async (req, res) => {
   try {
@@ -10,9 +11,15 @@ exports.createShoppingList = async (req, res) => {
       name,
       description,
       items: items.map((item) => ({
+        _id: item._id,
+        foodId: item.foodId || item._id,
         name: item.name,
         estimatedPrice: item.estimatedPrice,
         quantity: item.quantity || 1,
+        unit: item.unit,
+        category: item.category || item.categories,
+        calories: item.calories,
+        price: item.price,
         bought: false,
       })),
       totalEstimatedPrice,
@@ -66,41 +73,72 @@ exports.updateShoppingList = async (req, res) => {
 exports.markItemAsBought = async (req, res) => {
   try {
     const { listId, itemId } = req.params
+    console.log("Marking item as bought:", { listId, itemId })
 
-    // Find the shopping list and item
+    // Find the shopping list
     const shoppingList = await ShoppingList.findOne({
       _id: listId,
       userId: req.user._id,
-      "items._id": itemId,
     })
 
     if (!shoppingList) {
+      console.log("Shopping list not found:", listId)
       return res.status(404).json({
         success: false,
-        message: "Shopping list or item not found",
+        message: "Shopping list not found",
       })
     }
 
     // Find the item in the shopping list
-    const item = shoppingList.items.id(itemId)
+    const itemIndex = shoppingList.items.findIndex(
+      (item) => item._id.toString() === itemId
+    )
+
+    if (itemIndex === -1) {
+      console.log("Item not found in list:", itemId)
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in shopping list",
+      })
+    }
+
+    const item = shoppingList.items[itemIndex]
+    console.log("Found item:", item)
+
+    // Mark item as bought
     item.bought = true
 
-    // Add item to pantry
+    // Find or create pantry
     let pantry = await Pantry.findOne({ userId: req.user._id })
     if (!pantry) {
+      console.log("Creating new pantry for user")
       pantry = new Pantry({ userId: req.user._id, items: [] })
     }
 
-    pantry.items.push({
-      foodId: item.foodId,
+    // Add to pantry
+    const pantryItem = {
+      foodId: item.foodId || item._id, // Use existing foodId or item._id
       name: item.name,
-      quantity: item.quantity,
-      unit: item.unit,
-      expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days expiration
-    })
+      quantity: item.quantity || 1,
+      unit: item.unit || "kpl",
+      expirationDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      category: item.category || [],
+      calories: item.calories || 0,
+      price: item.price || item.estimatedPrice || 0,
+      addedFrom: "shopping-list",
+    }
+
+    console.log("Adding to pantry:", pantryItem)
+    pantry.items.push(pantryItem)
 
     // Save both documents
-    await Promise.all([shoppingList.save(), pantry.save()])
+    try {
+      await Promise.all([shoppingList.save(), pantry.save()])
+      console.log("Successfully saved both documents")
+    } catch (saveError) {
+      console.error("Error saving documents:", saveError)
+      throw saveError
+    }
 
     res.json({
       success: true,
@@ -109,7 +147,12 @@ exports.markItemAsBought = async (req, res) => {
       pantry,
     })
   } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
+    console.error("Error in markItemAsBought:", error)
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+    })
   }
 }
 

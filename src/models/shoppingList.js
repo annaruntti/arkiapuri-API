@@ -9,10 +9,27 @@ const shoppingListItemSchema = new mongoose.Schema({
     type: Number,
     min: 0,
   },
+  price: {
+    type: Number,
+    min: 0,
+  },
   quantity: {
     type: Number,
     default: 1,
     min: 0,
+  },
+  unit: {
+    type: String,
+    default: "kpl",
+  },
+  category: {
+    type: [String],
+    default: [],
+  },
+  calories: {
+    type: Number,
+    min: 0,
+    default: 0,
   },
   bought: {
     type: Boolean,
@@ -46,7 +63,7 @@ const shoppingListSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, // This will add createdAt and updatedAt automatically
+    timestamps: true,
   }
 )
 
