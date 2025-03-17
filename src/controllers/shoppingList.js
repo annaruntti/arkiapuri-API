@@ -156,6 +156,72 @@ exports.markItemAsBought = async (req, res) => {
   }
 }
 
+exports.addItemsToShoppingList = async (req, res) => {
+  try {
+    const { id } = req.params
+    const { items } = req.body
+    console.log("Adding items to shopping list:", { id, items })
+
+    // Find the shopping list
+    const shoppingList = await ShoppingList.findOne({
+      _id: id,
+      userId: req.user._id,
+    })
+
+    if (!shoppingList) {
+      console.log("Shopping list not found:", id)
+      return res.status(404).json({
+        success: false,
+        message: "Shopping list not found or unauthorized",
+      })
+    }
+
+    // Format new items to match schema structure
+    const newItems = items.map((item) => ({
+      _id: item._id,
+      foodId: item.foodId || item._id,
+      name: item.name,
+      estimatedPrice: item.estimatedPrice || item.price || 0,
+      quantity: item.quantity || 1,
+      unit: item.unit || "kpl",
+      category: item.category || item.categories || [],
+      calories: item.calories || 0,
+      price: item.price || 0,
+      bought: false,
+    }))
+
+    // Add new items to the shopping list
+    shoppingList.items.push(...newItems)
+
+    // Recalculate total estimated price
+    shoppingList.totalEstimatedPrice = shoppingList.items.reduce(
+      (total, item) => total + (item.estimatedPrice || 0),
+      0
+    )
+
+    // Save the updated shopping list
+    try {
+      await shoppingList.save()
+      console.log("Successfully added items to shopping list")
+    } catch (saveError) {
+      console.error("Error saving shopping list:", saveError)
+      throw saveError
+    }
+
+    res.json({
+      success: true,
+      shoppingList,
+    })
+  } catch (error) {
+    console.error("Error in addItemsToShoppingList:", error)
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+    })
+  }
+}
+
 exports.deleteShoppingList = async (req, res) => {
   try {
     const { id } = req.params
