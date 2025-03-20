@@ -1,0 +1,12 @@
+{
+  "GroupName": "api-mongodb-security-group",
+  "Description": "Security group for API to MongoDB Atlas access",
+  "SecurityGroupIngress": [
+    {
+      "IpProtocol": "tcp",
+      "FromPort": 27017,
+      "ToPort": 27017,
+      "CidrIp": "your-mongodb-atlas-cidr"
+    }
+  ]
+}

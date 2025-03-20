@@ -1,0 +1,11 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.prod"
+
+[deploy]
+startCommand = "node app.js"
+healthcheckPath = "/health"
+restartPolicyType = "ON_FAILURE"
+
+[env]
+NODE_ENV = "production" 
