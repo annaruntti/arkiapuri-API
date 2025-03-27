@@ -36,13 +36,31 @@ See `.env.example` for required environment variables.
 
 ## How to run / use this project
 
-- First clone or download this project.
-- Use node version 18.
-- Do install everything using `npm install`
-- Make sure you created a `.env` file and include `MONGO_URI` and secret key for `JWT_SECRET` and CLOUDINARY_USER_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_KEY_SECRET for Cloudinary. Jsonwebtoken is a package for web tokens.
-- run `npm start` -> you should get log text "port is listening" and when database is connected: "our db is connected".
+### Development Mode
 
-## Production Deployment
+1. First clone or download this project
+2. Use node version 18
+3. Install dependencies: `npm install`
+4. Create `.env` file with required variables:
+   - `MONGO_URI`
+   - `JWT_SECRET`
+   - `CLOUDINARY_USER_NAME`
+   - `CLOUDINARY_API_KEY`
+   - `CLOUDINARY_API_KEY_SECRET`
+5. Run the server:
+   - `npm run dev` for development with nodemon
+   - `npm start` for production mode
+
+### Docker Development
+
+1. Make sure Docker is installed
+2. Run with Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
+3. The API will be available at `http://localhost:3001`
+
+### Production Deployment
 
 - Deployed on Railway
 - MongoDB Atlas for database
@@ -51,7 +69,8 @@ See `.env.example` for required environment variables.
 
 ## API Documentation
 
-(Add your API endpoints and usage here)
+- Development: `http://localhost:3001/api-docs`
+- Production: `https://your-railway-url/api-docs`
 
 ## Deployment URLs
 

@@ -13,6 +13,9 @@ RUN npm ci --only=production
 # Copy app source
 COPY . .
 
+# The port should match what Railway expects
+ENV PORT=3001
+
 # Expose port
 EXPOSE 3001
 

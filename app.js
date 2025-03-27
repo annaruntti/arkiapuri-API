@@ -2,11 +2,12 @@ const express = require("express")
 const cors = require("cors")
 const fs = require("fs")
 const path = require("path")
-const { rateLimiter, helmet } = require("./src/middleware/security")
+const { rateLimiter } = require("./src/middleware/security")
 const requestLogger = require("./src/middleware/logger")
 const swaggerUi = require("swagger-ui-express")
 const swaggerSpec = require("./src/utils/swagger")
 const compression = require("compression")
+const helmet = require("helmet")
 
 // Load env variables first
 require("dotenv").config()
@@ -38,7 +39,21 @@ const User = require("./src/models/user")
 
 const app = express()
 
-// Use CORS middleware with configuration
+// Use helmet() as a function, not just the reference
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        scriptSrc: ["'self'"],
+      },
+    },
+  })
+)
+
+// Use CORS middleware
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN,
@@ -56,7 +71,6 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Add before routes
-app.use(helmet)
 app.use(rateLimiter)
 app.use(requestLogger)
 
