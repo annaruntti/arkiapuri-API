@@ -59,7 +59,7 @@ app.use(
   cors({
     origin:
       process.env.NODE_ENV === "production"
-        ? process.env.CORS_ORIGIN || "https://my-frontend-url.com" // Replace with actual frontend URL when
+        ? process.env.CORS_ORIGIN || "https://my-frontend-url.com" // Replace with actual frontend URL when deployed
         : "http://localhost:8081",
     credentials: true,
   })
@@ -82,6 +82,17 @@ app.use(requestLogger)
 if (process.env.NODE_ENV === "production") {
   app.use(compression())
 }
+
+// Root route
+app.get("/", (req, res) => {
+  res.json({
+    message: "Welcome to Arkiapuri API",
+    version: "1.0.0",
+    status: "running",
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  })
+})
 
 // API routes
 app.use(userRouter)
@@ -112,20 +123,9 @@ if (process.env.NODE_ENV === "development") {
 // Health check route
 app.get("/health", async (req, res) => {
   try {
-    // Check is MongoDB connected
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: "unhealthy",
-        mongodb: "disconnected",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-      })
-    }
-
-    // If connected, return healthy status
+    // Basic health check without MongoDB check
     res.json({
       status: "healthy",
-      mongodb: "connected",
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
     })
