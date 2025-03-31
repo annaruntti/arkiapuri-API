@@ -8,6 +8,7 @@ const swaggerUi = require("swagger-ui-express")
 const swaggerSpec = require("./src/utils/swagger")
 const compression = require("compression")
 const helmet = require("helmet")
+const mongoose = require("mongoose")
 
 // Load env variables first
 require("dotenv").config()
@@ -25,7 +26,7 @@ const validateEnv = () => {
 
 validateEnv()
 
-// Now require the database connection
+// Database connection
 require("./src/models/db")
 
 const userRouter = require("./src/routes/user")
@@ -39,7 +40,7 @@ const User = require("./src/models/user")
 
 const app = express()
 
-// Use helmet() as a function, not just the reference
+// Uses helmet() as a function, not just the reference
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -53,28 +54,31 @@ app.use(
   })
 )
 
-// Use CORS middleware
+// Uses CORS middleware
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
+    origin:
+      process.env.NODE_ENV === "production"
+        ? process.env.CORS_ORIGIN || "https://my-frontend-url.com" // Replace with actual frontend URL when
+        : "http://localhost:8081",
     credentials: true,
   })
 )
 
-// Use JSON middleware
+// Uses JSON middleware
 app.use(express.json())
 
-// Create uploads directory if it doesn't exist
+// Creates uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads")
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir)
 }
 
-// Add before routes
+// Adds rate limiter before routes
 app.use(rateLimiter)
 app.use(requestLogger)
 
-// Add after cors and before routes
+// Adds compression after cors and before routes
 if (process.env.NODE_ENV === "production") {
   app.use(compression())
 }
@@ -87,7 +91,6 @@ app.use(shoppingListRouter)
 app.use(pantryRouter)
 app.use(visionRouter)
 
-// Add before your routes
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 
 // Development route to see all registered routes
@@ -106,14 +109,34 @@ if (process.env.NODE_ENV === "development") {
   })
 }
 
-// Enhanced health check route
-app.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV,
-  })
+// Health check route
+app.get("/health", async (req, res) => {
+  try {
+    // Check is MongoDB connected
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: "unhealthy",
+        mongodb: "disconnected",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+      })
+    }
+
+    // If connected, return healthy status
+    res.json({
+      status: "healthy",
+      mongodb: "connected",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    })
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    })
+  }
 })
 
 // Error handling middleware
@@ -135,9 +158,15 @@ app.use((req, res) => {
   })
 })
 
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`)
   console.log(`Environment: ${process.env.NODE_ENV}`)
-  console.log(`CORS enabled for: ${process.env.CORS_ORIGIN}`)
+  console.log(
+    `CORS enabled for: ${
+      process.env.NODE_ENV === "production"
+        ? process.env.CORS_ORIGIN
+        : "http://localhost:8081"
+    }`
+  )
 })

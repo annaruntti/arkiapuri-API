@@ -58,7 +58,7 @@ See `.env.example` for required environment variables.
    ```bash
    docker-compose up -d
    ```
-3. The API will be available at `http://localhost:3001`
+3. The API will be available at `http://localhost:3000`
 
 ### Production Deployment
 
@@ -69,7 +69,7 @@ See `.env.example` for required environment variables.
 
 ## API Documentation
 
-- Development: `http://localhost:3001/api-docs`
+- Development: `http://localhost:3000/api-docs`
 - Production: `https://your-railway-url/api-docs`
 
 ## Deployment URLs

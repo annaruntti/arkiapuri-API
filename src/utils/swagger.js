@@ -12,7 +12,7 @@ const options = {
         url:
           process.env.NODE_ENV === "production"
             ? "https://your-production-url"
-            : `http://localhost:${process.env.PORT || 3001}`,
+            : `http://localhost:${process.env.PORT || 3000}`,
       },
       {
         url: process.env.CORS_ORIGIN || "http://localhost:8081",
