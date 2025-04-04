@@ -21,9 +21,50 @@ const mealSchema = new mongoose.Schema({
     type: Number,
   },
   defaultRoles: {
-    type: [String],
-    enum: ["breakfast", "lunch", "snack", "dinner", "supper"],
-    default: ["dinner"],
+    type: String,
+    required: true,
+    get: function (v) {
+      try {
+        return JSON.parse(v)
+      } catch (e) {
+        return ["dinner"] // Fallback if parsing fails
+      }
+    },
+    set: function (v) {
+      // Check is it an array
+      const roles = Array.isArray(v) ? v : [v]
+      // Validate roles
+      const validRoles = [
+        "breakfast",
+        "lunch",
+        "snack",
+        "dinner",
+        "supper",
+        "dessert",
+        "other",
+      ]
+
+      // Filter out invalid roles
+      const filteredRoles = roles.filter((role) => validRoles.includes(role))
+
+      // If no valid roles, use default
+      if (filteredRoles.length === 0) {
+        return JSON.stringify(["dinner"])
+      }
+
+      return JSON.stringify(filteredRoles)
+    },
+    validate: {
+      validator: function (v) {
+        try {
+          const roles = JSON.parse(v)
+          return Array.isArray(roles) && roles.length > 0
+        } catch (e) {
+          return false
+        }
+      },
+      message: "At least one valid meal role is required",
+    },
   },
   plannedCookingDate: {
     type: Date,
@@ -43,6 +84,19 @@ const mealSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+})
+
+// Enable getters
+mealSchema.set("toJSON", { getters: true })
+mealSchema.set("toObject", { getters: true })
+
+mealSchema.pre("save", function (next) {
+  console.log("Pre-save meal data:", {
+    defaultRoles: this.defaultRoles,
+    isArray: Array.isArray(this.defaultRoles),
+    length: this.defaultRoles?.length,
+  })
+  next()
 })
 
 mealSchema.index({ user: 1, id: 1 }, { unique: true })
