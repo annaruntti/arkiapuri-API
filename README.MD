@@ -67,6 +67,57 @@ See `.env.example` for required environment variables.
 - Health check: `GET /health`
 - Monitoring: `GET /monitor`
 
+## Production Build and Deployment
+
+### Prerequisites
+
+1. Railway account and CLI installed
+2. MongoDB Atlas account
+3. Git repository connected to Railway
+
+### Deployment Steps
+
+1. **Push your changes to Git**
+
+   ```bash
+   git add .
+   git commit -m "Your commit message"
+   git push origin main
+   ```
+
+2. **Deploy to Railway**
+
+   ```bash
+   railway up
+   ```
+
+3. **Verify deployment**
+   - Check the deployment logs in Railway dashboard
+   - Test the health endpoint: `https://your-railway-url/health`
+   - Verify API functionality through the Swagger docs: `https://your-railway-url/api-docs`
+
+### Environment Variables for Production
+
+Ensure these environment variables are set in Railway project:
+
+- `NODE_ENV`: Set to "production"
+- `PORT`: Set to "3000"
+- `MONGODB_URI`: Your MongoDB Atlas connection string
+- `JWT_SECRET`: Your JWT secret key
+- `CLOUDINARY_USER_NAME`: Your Cloudinary username
+- `CLOUDINARY_API_KEY`: Your Cloudinary API key
+- `CLOUDINARY_API_KEY_SECRET`: Your Cloudinary API secret
+- `CORS_ORIGIN`: Set to your frontend URL (e.g., "https://your-frontend-url.com")
+- `GOOGLE_CALLBACK_URL`: Set to "https://your-railway-url/auth/google/callback"
+
+### Troubleshooting Production Deployment
+
+1. **Check deployment logs** in Railway dashboard for errors
+2. **Verify environment variables** are correctly set
+3. **Test MongoDB connection** by checking the health endpoint
+4. **Check CORS configuration** if frontend can't connect to the API
+5. **Verify port configuration** in `railway.toml` and `app.js`
+
 ## API Documentation
 
 - Development: `http://localhost:3000/api-docs`
