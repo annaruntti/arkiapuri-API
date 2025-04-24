@@ -6,28 +6,81 @@ exports.createShoppingList = async (req, res) => {
   try {
     const { name, description, items, totalEstimatedPrice } = req.body
 
+    // Log incoming items to debug
+    console.log("Incoming items:", items)
+
     const shoppingList = new ShoppingList({
       userId: req.user._id,
       name,
       description,
-      items: items.map((item) => ({
-        _id: item._id,
-        foodId: item.foodId || item._id,
-        name: item.name,
-        estimatedPrice: item.estimatedPrice,
-        quantity: item.quantity || 1,
-        unit: item.unit,
-        category: item.category || item.categories,
-        calories: item.calories,
-        price: item.price,
-        bought: false,
-      })),
+      items: items.map((item) => {
+        // Log each item's data before mapping
+        console.log("Item data before mapping:", {
+          name: item.name,
+          quantity: item.quantity,
+          quantities: item.quantities,
+          location: item.location,
+          quantityType: typeof item.quantity,
+        })
+
+        // Set quantities based on location
+        const parsedQuantity =
+          typeof item.quantity === "number"
+            ? item.quantity
+            : parseFloat(item.quantity) || 1
+
+        const quantities = {
+          meal: 0,
+          "shopping-list":
+            item.location === "shopping-list" ? parsedQuantity : 0,
+          pantry: item.location === "pantry" ? parsedQuantity : 0,
+        }
+
+        return {
+          _id: item._id,
+          foodId: item.foodId || item._id,
+          name: item.name,
+          estimatedPrice: item.estimatedPrice,
+          quantity: parsedQuantity,
+          quantities: quantities,
+          unit: item.unit,
+          category: item.category || item.categories,
+          calories: item.calories,
+          price: item.price,
+          bought: false,
+        }
+      }),
       totalEstimatedPrice,
     })
 
+    // Log the shopping list before saving
+    console.log("Shopping list before save:", {
+      items: shoppingList.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        quantities: item.quantities,
+        location: item.location,
+        quantityType: typeof item.quantity,
+      })),
+    })
+
     await shoppingList.save()
+
+    // Log the saved shopping list
+    const savedList = await ShoppingList.findById(shoppingList._id)
+    console.log("Saved shopping list:", {
+      items: savedList.items.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        quantities: item.quantities,
+        location: item.location,
+        quantityType: typeof item.quantity,
+      })),
+    })
+
     res.json({ success: true, shoppingList })
   } catch (error) {
+    console.error("Error creating shopping list:", error)
     res.status(400).json({ success: false, error: error.message })
   }
 }
@@ -177,18 +230,54 @@ exports.addItemsToShoppingList = async (req, res) => {
     }
 
     // Format new items to match schema structure
-    const newItems = items.map((item) => ({
-      _id: item._id,
-      foodId: item.foodId || item._id,
-      name: item.name,
-      estimatedPrice: item.estimatedPrice || item.price || 0,
-      quantity: item.quantity || 1,
-      unit: item.unit || "kpl",
-      category: item.category || item.categories || [],
-      calories: item.calories || 0,
-      price: item.price || 0,
-      bought: false,
-    }))
+    const newItems = items.map((item) => {
+      // Log the incoming item data
+      console.log("Processing item:", {
+        name: item.name,
+        quantity: item.quantity,
+        quantities: item.quantities,
+        location: item.location,
+        quantityType: typeof item.quantity,
+      })
+
+      // Set quantities based on location
+      const parsedQuantity =
+        typeof item.quantity === "number"
+          ? item.quantity
+          : parseFloat(item.quantity) || 1
+
+      const quantities = {
+        meal: 0,
+        "shopping-list": item.location === "shopping-list" ? parsedQuantity : 0,
+        pantry: item.location === "pantry" ? parsedQuantity : 0,
+      }
+
+      return {
+        _id: item._id,
+        foodId: item.foodId || item._id,
+        name: item.name,
+        estimatedPrice: item.estimatedPrice || item.price || 0,
+        quantity: parsedQuantity,
+        quantities: quantities,
+        unit: item.unit || "kpl",
+        category: item.category || item.categories || [],
+        calories: item.calories || 0,
+        price: item.price || 0,
+        bought: false,
+      }
+    })
+
+    // Log the processed items
+    console.log(
+      "Processed items:",
+      newItems.map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        quantities: item.quantities,
+        location: item.location,
+        quantityType: typeof item.quantity,
+      }))
+    )
 
     // Add new items to the shopping list
     shoppingList.items.push(...newItems)
@@ -203,6 +292,19 @@ exports.addItemsToShoppingList = async (req, res) => {
     try {
       await shoppingList.save()
       console.log("Successfully added items to shopping list")
+
+      // Log the saved shopping list
+      const savedList = await ShoppingList.findById(id)
+      console.log(
+        "Saved shopping list items:",
+        savedList.items.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          quantities: item.quantities,
+          location: item.location,
+          quantityType: typeof item.quantity,
+        }))
+      )
     } catch (saveError) {
       console.error("Error saving shopping list:", saveError)
       throw saveError

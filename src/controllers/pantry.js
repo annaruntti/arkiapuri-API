@@ -64,8 +64,23 @@ const getPantry = async (req, res) => {
 // Add food item to pantry
 const addFoodItemToPantry = async (req, res) => {
   try {
-    const { name, category, quantity, unit, price, calories, expirationDate } =
-      req.body
+    const {
+      name,
+      category,
+      quantity,
+      unit,
+      price,
+      calories,
+      expirationDate,
+      quantities,
+    } = req.body
+
+    console.log("Received request data:", {
+      name,
+      quantity,
+      quantities,
+      location: "pantry",
+    })
 
     // Create or update food item
     let foodItem = await FoodItem.findOne({
@@ -74,23 +89,36 @@ const addFoodItemToPantry = async (req, res) => {
     })
 
     if (!foodItem) {
+      console.log("Creating new food item with quantities:", quantities)
       foodItem = new FoodItem({
         name,
         category,
-        quantity: 1,
+        quantity: parseFloat(quantity) || 1,
         unit,
         price,
         calories,
         user: req.user._id,
         location: "pantry",
+        quantities: quantities || {
+          meal: 0,
+          "shopping-list": 0,
+          pantry: parseFloat(quantity) || 1,
+        },
       })
       await foodItem.save()
     } else {
+      console.log("Updating existing food item with quantities:", quantities)
       foodItem.category = category
       foodItem.unit = unit
       foodItem.price = price
       foodItem.calories = calories
       foodItem.location = "pantry"
+      if (quantities) {
+        foodItem.quantities = quantities
+      } else {
+        foodItem.quantities.pantry =
+          (foodItem.quantities.pantry || 0) + (parseFloat(quantity) || 1)
+      }
       await foodItem.save()
     }
 
@@ -105,7 +133,7 @@ const addFoodItemToPantry = async (req, res) => {
 
     if (existingItem) {
       // Update existing pantry item
-      existingItem.quantity += quantity
+      existingItem.quantity += parseFloat(quantity) || 1
       existingItem.unit = foodItem.unit
       existingItem.category = foodItem.category
       existingItem.calories = foodItem.calories
@@ -118,7 +146,7 @@ const addFoodItemToPantry = async (req, res) => {
       pantry.items.push({
         foodId: foodItem._id,
         name: foodItem.name,
-        quantity,
+        quantity: parseFloat(quantity) || 1,
         unit: foodItem.unit,
         category: foodItem.category,
         calories: foodItem.calories,
@@ -130,12 +158,19 @@ const addFoodItemToPantry = async (req, res) => {
 
     await pantry.save()
 
+    console.log("Saved food item:", {
+      name: foodItem.name,
+      quantity: foodItem.quantity,
+      quantities: foodItem.quantities,
+    })
+
     res.json({
       success: true,
       pantry,
       foodItem,
     })
   } catch (error) {
+    console.error("Error in addFoodItemToPantry:", error)
     res.status(400).json({ success: false, error: error.message })
   }
 }
