@@ -5,7 +5,6 @@ const FoodItem = require("../models/foodItem")
 exports.createMeal = async (req, res) => {
   try {
     const {
-      id,
       name,
       recipe,
       difficultyLevel,
@@ -26,7 +25,7 @@ exports.createMeal = async (req, res) => {
     })
 
     // Validate required fields
-    if (!id || !name || !recipe) {
+    if (!name || !recipe) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields",
@@ -91,7 +90,6 @@ exports.createMeal = async (req, res) => {
 
     // Create meal data object
     const mealData = {
-      id,
       name,
       recipe,
       difficultyLevel,
@@ -183,11 +181,11 @@ exports.getMeals = async (req, res) => {
 // Update a meal
 exports.updateMeal = async (req, res) => {
   try {
-    const { id } = req.params
+    const { mealId } = req.params
     const updateData = req.body
 
     // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ id, user: req.user._id })
+    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -197,7 +195,7 @@ exports.updateMeal = async (req, res) => {
 
     // Update the meal
     const updatedMeal = await Meal.findOneAndUpdate(
-      { id, user: req.user._id },
+      { _id: mealId, user: req.user._id },
       updateData,
       { new: true }
     ).populate({
@@ -216,10 +214,10 @@ exports.updateMeal = async (req, res) => {
 // Delete a meal
 exports.deleteMeal = async (req, res) => {
   try {
-    const { id } = req.params
+    const { mealId } = req.params
 
     // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ id, user: req.user._id })
+    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -228,7 +226,7 @@ exports.deleteMeal = async (req, res) => {
     }
 
     // Delete the meal
-    await Meal.findOneAndDelete({ id, user: req.user._id })
+    await Meal.findOneAndDelete({ _id: mealId, user: req.user._id })
 
     // Remove the meal from the user's meals array
     await User.findByIdAndUpdate(req.user._id, {

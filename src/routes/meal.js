@@ -11,7 +11,7 @@ const router = express.Router()
 
 router.post("/meals", isAuth, createMeal)
 router.get("/meals", isAuth, getMeals)
-router.put("/meals/:id", isAuth, updateMeal)
-router.delete("/meals/:id", isAuth, deleteMeal)
+router.put("/meals/:mealId", isAuth, updateMeal)
+router.delete("/meals/:mealId", isAuth, deleteMeal)
 
 module.exports = router

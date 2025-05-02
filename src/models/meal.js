@@ -1,11 +1,6 @@
 const mongoose = require("mongoose")
 
 const mealSchema = new mongoose.Schema({
-  id: {
-    type: String,
-    required: true,
-    unique: true,
-  },
   name: {
     type: String,
     required: true,
@@ -99,6 +94,7 @@ mealSchema.pre("save", function (next) {
   next()
 })
 
-mealSchema.index({ user: 1, id: 1 }, { unique: true })
+// Update index to use _id instead of id
+mealSchema.index({ user: 1 }, { unique: false })
 
 module.exports = mongoose.model("Meal", mealSchema)
