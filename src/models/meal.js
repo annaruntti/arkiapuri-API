@@ -85,16 +85,8 @@ const mealSchema = new mongoose.Schema({
 mealSchema.set("toJSON", { getters: true })
 mealSchema.set("toObject", { getters: true })
 
-mealSchema.pre("save", function (next) {
-  console.log("Pre-save meal data:", {
-    defaultRoles: this.defaultRoles,
-    isArray: Array.isArray(this.defaultRoles),
-    length: this.defaultRoles?.length,
-  })
-  next()
-})
-
-// Update index to use _id instead of id
-mealSchema.index({ user: 1 }, { unique: false })
+// Create indexes for query performance
+mealSchema.index({ user: 1 })
+mealSchema.index({ user: 1, name: 1 })
 
 module.exports = mongoose.model("Meal", mealSchema)

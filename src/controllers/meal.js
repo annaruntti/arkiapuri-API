@@ -15,15 +15,6 @@ exports.createMeal = async (req, res) => {
       createdAt,
     } = req.body
 
-    // Log incoming request data
-    console.log("Received meal creation request:", {
-      defaultRoles,
-      isArray: Array.isArray(defaultRoles),
-      length: defaultRoles?.length,
-      firstRole: defaultRoles?.[0],
-      rawDefaultRoles: JSON.stringify(defaultRoles),
-    })
-
     // Validate required fields
     if (!name || !recipe) {
       return res.status(400).json({
@@ -33,7 +24,7 @@ exports.createMeal = async (req, res) => {
     }
 
     // Validate date format
-    if (!Date.parse(plannedCookingDate)) {
+    if (plannedCookingDate && !Date.parse(plannedCookingDate)) {
       return res.status(400).json({
         success: false,
         message: "Invalid plannedCookingDate format",
@@ -41,16 +32,18 @@ exports.createMeal = async (req, res) => {
     }
 
     // Validate foodItems and check are they belonging to the user
-    const validFoodItems = await FoodItem.find({
-      _id: { $in: foodItems },
-      user: req.user._id,
-    })
-
-    if (validFoodItems.length !== foodItems.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid food items or food items don't belong to user",
+    if (foodItems && foodItems.length > 0) {
+      const validFoodItems = await FoodItem.find({
+        _id: { $in: foodItems },
+        user: req.user._id,
       })
+
+      if (validFoodItems.length !== foodItems.length) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid food items or food items don't belong to user",
+        })
+      }
     }
 
     // DefaultRoles validation
@@ -101,39 +94,8 @@ exports.createMeal = async (req, res) => {
       createdAt,
     }
 
-    // Log meal data before creation
-    console.log("Creating meal with data:", {
-      ...mealData,
-      defaultRoles: {
-        value: mealData.defaultRoles,
-        isArray: Array.isArray(mealData.defaultRoles),
-        length: mealData.defaultRoles.length,
-        firstRole: mealData.defaultRoles[0],
-        rawDefaultRoles: JSON.stringify(mealData.defaultRoles),
-      },
-    })
-
     const meal = new Meal(mealData)
-
-    // Log meal object before saving
-    console.log("Meal instance before save:", {
-      defaultRoles: meal.defaultRoles,
-      isArray: Array.isArray(meal.defaultRoles),
-      length: meal.defaultRoles?.length,
-      firstRole: meal.defaultRoles?.[0],
-      rawDefaultRoles: JSON.stringify(meal.defaultRoles),
-    })
-
     await meal.save()
-
-    // Log meal object after saving
-    console.log("Meal instance after save:", {
-      defaultRoles: meal.defaultRoles,
-      isArray: Array.isArray(meal.defaultRoles),
-      length: meal.defaultRoles?.length,
-      firstRole: meal.defaultRoles?.[0],
-      rawDefaultRoles: JSON.stringify(meal.defaultRoles),
-    })
 
     // Update user's meals array
     await User.findByIdAndUpdate(req.user._id, {
@@ -145,15 +107,6 @@ exports.createMeal = async (req, res) => {
       path: "foodItems",
       select:
         "name quantity unit category calories price location quantities locations",
-    })
-
-    // Log final populated meal
-    console.log("Final populated meal:", {
-      defaultRoles: populatedMeal.defaultRoles,
-      isArray: Array.isArray(populatedMeal.defaultRoles),
-      length: populatedMeal.defaultRoles?.length,
-      firstRole: populatedMeal.defaultRoles?.[0],
-      rawDefaultRoles: JSON.stringify(populatedMeal.defaultRoles),
     })
 
     res.json({ success: true, meal: populatedMeal })
