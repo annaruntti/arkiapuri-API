@@ -5,7 +5,12 @@ const userSchema = new mongoose.Schema(
   {
     username: {
       type: String,
-      required: true,
+      required: function () {
+        return !this.googleId && !this.facebookId && !this.appleId
+      },
+    },
+    name: {
+      type: String,
     },
     email: {
       type: String,
@@ -14,9 +19,20 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return !this.googleId && !this.facebookId && !this.appleId
+      },
     },
     avatar: String,
+    profilePicture: String,
+    // Social authentication IDs
+    googleId: String,
+    facebookId: String,
+    appleId: String,
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     foodItems: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -40,13 +56,15 @@ const userSchema = new mongoose.Schema(
 )
 
 userSchema.pre("save", function (next) {
-  if (this.isModified("password")) {
+  if (this.isModified("password") && this.password) {
     bcrypt.hash(this.password, 8, (err, hash) => {
       if (err) return next(err)
 
       this.password = hash
       next()
     })
+  } else {
+    next()
   }
 })
 
