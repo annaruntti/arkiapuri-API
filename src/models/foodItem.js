@@ -43,6 +43,33 @@ const foodItemSchema = new mongoose.Schema(
     expirationDate: {
       type: Date,
     },
+    // Open Food Facts integration data
+    openFoodFactsData: {
+      barcode: String,
+      brands: String,
+      nutritionGrade: {
+        type: String,
+        enum: ["a", "b", "c", "d", "e"],
+      },
+      novaGroup: {
+        type: Number,
+        enum: [1, 2, 3, 4],
+      },
+      imageUrl: String,
+      nutrition: {
+        proteins: { type: Number, default: 0 },
+        carbohydrates: { type: Number, default: 0 },
+        sugars: { type: Number, default: 0 },
+        fat: { type: Number, default: 0 },
+        saturatedFat: { type: Number, default: 0 },
+        fiber: { type: Number, default: 0 },
+        sodium: { type: Number, default: 0 },
+        salt: { type: Number, default: 0 },
+      },
+      labels: [String],
+      allergens: [String],
+      lastUpdated: Date,
+    },
   },
   {
     timestamps: true,
