@@ -1,5 +1,8 @@
 const openFoodFactsService = require("../services/openFoodFactsService")
 const FoodItem = require("../models/foodItem")
+const Pantry = require("../models/pantry")
+const ShoppingList = require("../models/shoppingList")
+const Meal = require("../models/meal")
 
 /**
  * Search products by barcode
@@ -186,7 +189,13 @@ exports.getSuggestions = async (req, res) => {
 exports.addToFoodItems = async (req, res) => {
   try {
     const { barcode } = req.params
-    const { location = "shopping-list", quantity = 1, unit = "pcs" } = req.body
+    const {
+      location = "shopping-list",
+      quantity = 1,
+      unit = "pcs",
+      shoppingListId = null,
+      mealId = null,
+    } = req.body
 
     if (!barcode) {
       return res.status(400).json({
@@ -243,15 +252,22 @@ exports.addToFoodItems = async (req, res) => {
       user: req.user._id,
       quantities: {
         meal: location === "meal" ? parseFloat(quantity) : 0,
-        "shopping-list": location === "shopping-list" ? parseFloat(quantity) : 0,
+        "shopping-list":
+          location === "shopping-list" ? parseFloat(quantity) : 0,
         pantry: location === "pantry" ? parseFloat(quantity) : 0,
       },
       // Store Open Food Facts data for reference
       openFoodFactsData: {
         barcode: offProduct.barcode,
         brands: offProduct.brands,
-        nutritionGrade: offProduct.nutritionGrade,
-        novaGroup: offProduct.novaGroup,
+        nutritionGrade: ["a", "b", "c", "d", "e"].includes(
+          offProduct.nutritionGrade?.toLowerCase()
+        )
+          ? offProduct.nutritionGrade.toLowerCase()
+          : undefined,
+        novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup)
+          ? offProduct.novaGroup
+          : undefined,
         imageUrl: offProduct.imageUrl,
         nutrition: offProduct.nutrition,
         labels: offProduct.labels,
@@ -263,12 +279,21 @@ exports.addToFoodItems = async (req, res) => {
     const foodItem = new FoodItem(foodItemData)
     await foodItem.save()
 
+    // Return the food item so frontend can handle collection addition
     res.json({
       success: true,
       message: "Product added from Open Food Facts",
       foodItem,
       fromOpenFoodFacts: true,
       openFoodFactsData: offProduct,
+      // Include data needed for frontend to add to collections
+      collectionData: {
+        location,
+        quantity: parseFloat(quantity),
+        unit,
+        shoppingListId,
+        mealId,
+      },
     })
   } catch (error) {
     console.error("Error in addToFoodItems:", error)
@@ -321,7 +346,9 @@ exports.enrichFoodItem = async (req, res) => {
 
     // Update food item with Open Food Facts data
     foodItem.calories = offProduct.nutrition.calories || foodItem.calories
-    foodItem.category = [...new Set([...foodItem.category, offProduct.mainCategory])]
+    foodItem.category = [
+      ...new Set([...foodItem.category, offProduct.mainCategory]),
+    ]
     foodItem.openFoodFactsData = {
       barcode: offProduct.barcode,
       brands: offProduct.brands,
