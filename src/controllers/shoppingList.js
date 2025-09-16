@@ -7,7 +7,6 @@ exports.createShoppingList = async (req, res) => {
     const { name, description, items, totalEstimatedPrice } = req.body
 
     // Log incoming items to debug
-    console.log("Incoming items:", items)
 
     const shoppingList = new ShoppingList({
       userId: req.user._id,
@@ -126,7 +125,6 @@ exports.updateShoppingList = async (req, res) => {
 exports.markItemAsBought = async (req, res) => {
   try {
     const { listId, itemId } = req.params
-    console.log("Marking item as bought:", { listId, itemId })
 
     // Find the shopping list
     const shoppingList = await ShoppingList.findOne({
@@ -135,7 +133,6 @@ exports.markItemAsBought = async (req, res) => {
     })
 
     if (!shoppingList) {
-      console.log("Shopping list not found:", listId)
       return res.status(404).json({
         success: false,
         message: "Shopping list not found",
@@ -148,7 +145,6 @@ exports.markItemAsBought = async (req, res) => {
     )
 
     if (itemIndex === -1) {
-      console.log("Item not found in list:", itemId)
       return res.status(404).json({
         success: false,
         message: "Item not found in shopping list",
@@ -156,7 +152,6 @@ exports.markItemAsBought = async (req, res) => {
     }
 
     const item = shoppingList.items[itemIndex]
-    console.log("Found item:", item)
 
     // Mark item as bought
     item.bought = true
@@ -181,13 +176,11 @@ exports.markItemAsBought = async (req, res) => {
       addedFrom: "shopping-list",
     }
 
-    console.log("Adding to pantry:", pantryItem)
     pantry.items.push(pantryItem)
 
     // Save both documents
     try {
       await Promise.all([shoppingList.save(), pantry.save()])
-      console.log("Successfully saved both documents")
     } catch (saveError) {
       console.error("Error saving documents:", saveError)
       throw saveError
@@ -222,7 +215,6 @@ exports.addItemsToShoppingList = async (req, res) => {
     })
 
     if (!shoppingList) {
-      console.log("Shopping list not found:", id)
       return res.status(404).json({
         success: false,
         message: "Shopping list not found or unauthorized",
@@ -232,13 +224,6 @@ exports.addItemsToShoppingList = async (req, res) => {
     // Format new items to match schema structure
     const newItems = items.map((item) => {
       // Log the incoming item data
-      console.log("Processing item:", {
-        name: item.name,
-        quantity: item.quantity,
-        quantities: item.quantities,
-        location: item.location,
-        quantityType: typeof item.quantity,
-      })
 
       // Set quantities based on location
       const parsedQuantity =
@@ -291,20 +276,9 @@ exports.addItemsToShoppingList = async (req, res) => {
     // Save the updated shopping list
     try {
       await shoppingList.save()
-      console.log("Successfully added items to shopping list")
 
       // Log the saved shopping list
       const savedList = await ShoppingList.findById(id)
-      console.log(
-        "Saved shopping list items:",
-        savedList.items.map((item) => ({
-          name: item.name,
-          quantity: item.quantity,
-          quantities: item.quantities,
-          location: item.location,
-          quantityType: typeof item.quantity,
-        }))
-      )
     } catch (saveError) {
       console.error("Error saving shopping list:", saveError)
       throw saveError

@@ -160,8 +160,6 @@ exports.getUserProfile = async (req, res) => {
 
 exports.uploadProfileImage = async (req, res) => {
   try {
-    console.log("Uploaded file:", req.file)
-
     if (!req.file) {
       return res.status(400).json({
         success: false,

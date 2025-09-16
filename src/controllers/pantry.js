@@ -75,13 +75,6 @@ const addFoodItemToPantry = async (req, res) => {
       quantities,
     } = req.body
 
-    console.log("Received request data:", {
-      name,
-      quantity,
-      quantities,
-      location: "pantry",
-    })
-
     // Create or update food item
     let foodItem = await FoodItem.findOne({
       name: name.trim().toLowerCase(),
@@ -89,7 +82,6 @@ const addFoodItemToPantry = async (req, res) => {
     })
 
     if (!foodItem) {
-      console.log("Creating new food item with quantities:", quantities)
       foodItem = new FoodItem({
         name,
         category,
@@ -107,7 +99,6 @@ const addFoodItemToPantry = async (req, res) => {
       })
       await foodItem.save()
     } else {
-      console.log("Updating existing food item with quantities:", quantities)
       foodItem.category = category
       foodItem.unit = unit
       foodItem.price = price
