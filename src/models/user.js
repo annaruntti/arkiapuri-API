@@ -49,6 +49,9 @@ const userSchema = new mongoose.Schema(
       url: String,
       publicId: String,
     },
+    // Password reset fields
+    resetPasswordToken: String,
+    resetPasswordExpiry: Date,
   },
   {
     timestamps: true,
