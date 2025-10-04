@@ -1,6 +1,8 @@
 const Meal = require("../models/meal")
 const User = require("../models/user")
 const FoodItem = require("../models/foodItem")
+const cloudinary = require("../helper/imageUpload")
+const fs = require("fs")
 
 exports.createMeal = async (req, res) => {
   try {
@@ -190,5 +192,154 @@ exports.deleteMeal = async (req, res) => {
   } catch (error) {
     console.error("Error deleting meal:", error)
     res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// Upload meal image
+exports.uploadMealImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      })
+    }
+
+    const { mealId } = req.params
+
+    // Find the meal and check if it belongs to the user
+    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
+    if (!meal) {
+      return res.status(404).json({
+        success: false,
+        message: "Meal not found or unauthorized",
+      })
+    }
+
+    // Check Cloudinary credentials
+    if (
+      !process.env.CLOUDINARY_USER_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_KEY_SECRET
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: "Cloud storage not configured",
+      })
+    }
+
+    try {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "meal-images",
+        use_filename: true,
+      })
+
+      // Update meal with image
+      const updatedMeal = await Meal.findByIdAndUpdate(
+        mealId,
+        {
+          image: {
+            url: result.secure_url,
+            publicId: result.public_id,
+          },
+        },
+        { new: true }
+      ).populate({
+        path: "foodItems",
+        select:
+          "name quantity unit category calories price location quantities locations",
+      })
+
+      // Clean up the uploaded file
+      fs.unlinkSync(req.file.path)
+
+      res.json({
+        success: true,
+        meal: updatedMeal,
+      })
+    } catch (uploadError) {
+      // Clean up the uploaded file in case of error
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+      throw uploadError
+    }
+  } catch (error) {
+    console.error("Upload error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Image upload failed",
+      error: error.message,
+    })
+  }
+}
+
+// Remove meal image
+exports.removeMealImage = async (req, res) => {
+  try {
+    const { mealId } = req.params
+
+    // Find the meal and check if it belongs to the user
+    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
+    if (!meal) {
+      return res.status(404).json({
+        success: false,
+        message: "Meal not found or unauthorized",
+      })
+    }
+
+    // Check if meal has an image
+    if (!meal.image || !meal.image.publicId) {
+      return res.status(400).json({
+        success: false,
+        message: "No image to remove",
+      })
+    }
+
+    // Check Cloudinary credentials
+    if (
+      !process.env.CLOUDINARY_USER_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_KEY_SECRET
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: "Cloud storage not configured",
+      })
+    }
+
+    try {
+      // Delete from Cloudinary
+      await cloudinary.uploader.destroy(meal.image.publicId)
+
+      // Update meal to remove image
+      const updatedMeal = await Meal.findByIdAndUpdate(
+        mealId,
+        {
+          $unset: { image: 1 },
+        },
+        { new: true }
+      ).populate({
+        path: "foodItems",
+        select:
+          "name quantity unit category calories price location quantities locations",
+      })
+
+      res.json({
+        success: true,
+        meal: updatedMeal,
+      })
+    } catch (deleteError) {
+      console.error("Error deleting from Cloudinary:", deleteError)
+      throw deleteError
+    }
+  } catch (error) {
+    console.error("Remove image error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Image removal failed",
+      error: error.message,
+    })
   }
 }

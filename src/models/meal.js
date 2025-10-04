@@ -79,6 +79,14 @@ const mealSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+  image: {
+    url: {
+      type: String,
+    },
+    publicId: {
+      type: String,
+    },
+  },
 })
 
 // Enable getters
