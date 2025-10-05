@@ -1,5 +1,7 @@
 const FoodItem = require("../models/foodItem")
 const User = require("../models/user")
+const cloudinary = require("../helper/imageUpload")
+const fs = require("fs")
 
 exports.createFoodItem = async (req, res) => {
   try {
@@ -357,6 +359,153 @@ exports.moveItem = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
+      error: error.message,
+    })
+  }
+}
+
+// Upload food item image
+exports.uploadFoodItemImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      })
+    }
+
+    const { foodItemId } = req.params
+
+    // Find the food item and check if it belongs to the user
+    const foodItem = await FoodItem.findOne({
+      _id: foodItemId,
+      user: req.user._id,
+    })
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found or unauthorized",
+      })
+    }
+
+    // Check Cloudinary credentials
+    if (
+      !process.env.CLOUDINARY_USER_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_KEY_SECRET
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: "Cloud storage not configured",
+      })
+    }
+
+    try {
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "food-item-images",
+        use_filename: true,
+      })
+
+      // Update food item with image
+      const updatedFoodItem = await FoodItem.findByIdAndUpdate(
+        foodItemId,
+        {
+          image: {
+            url: result.secure_url,
+            publicId: result.public_id,
+          },
+        },
+        { new: true }
+      )
+
+      // Clean up the uploaded file
+      fs.unlinkSync(req.file.path)
+
+      res.json({
+        success: true,
+        foodItem: updatedFoodItem,
+      })
+    } catch (uploadError) {
+      // Clean up the uploaded file in case of error
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+      throw uploadError
+    }
+  } catch (error) {
+    console.error("Upload error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Image upload failed",
+      error: error.message,
+    })
+  }
+}
+
+// Remove food item image
+exports.removeFoodItemImage = async (req, res) => {
+  try {
+    const { foodItemId } = req.params
+
+    // Find the food item and check if it belongs to the user
+    const foodItem = await FoodItem.findOne({
+      _id: foodItemId,
+      user: req.user._id,
+    })
+    if (!foodItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found or unauthorized",
+      })
+    }
+
+    // Check if food item has an image
+    if (!foodItem.image || !foodItem.image.publicId) {
+      return res.status(400).json({
+        success: false,
+        message: "No image to remove",
+      })
+    }
+
+    // Check Cloudinary credentials
+    if (
+      !process.env.CLOUDINARY_USER_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_KEY_SECRET
+    ) {
+      return res.status(500).json({
+        success: false,
+        message: "Cloud storage not configured",
+      })
+    }
+
+    try {
+      // Delete from Cloudinary
+      await cloudinary.uploader.destroy(foodItem.image.publicId)
+
+      // Update food item to remove image
+      const updatedFoodItem = await FoodItem.findByIdAndUpdate(
+        foodItemId,
+        {
+          $unset: { image: 1 },
+        },
+        { new: true }
+      )
+
+      res.json({
+        success: true,
+        foodItem: updatedFoodItem,
+      })
+    } catch (deleteError) {
+      console.error("Error deleting from Cloudinary:", deleteError)
+      throw deleteError
+    }
+  } catch (error) {
+    console.error("Remove image error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Image removal failed",
       error: error.message,
     })
   }

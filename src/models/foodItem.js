@@ -43,6 +43,14 @@ const foodItemSchema = new mongoose.Schema(
     expirationDate: {
       type: Date,
     },
+    image: {
+      url: {
+        type: String,
+      },
+      publicId: {
+        type: String,
+      },
+    },
     // Open Food Facts integration data
     openFoodFactsData: {
       barcode: String,
