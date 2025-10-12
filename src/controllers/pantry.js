@@ -150,12 +150,6 @@ const addFoodItemToPantry = async (req, res) => {
 
     await pantry.save()
 
-    console.log("Saved food item:", {
-      name: foodItem.name,
-      quantity: foodItem.quantity,
-      quantities: foodItem.quantities,
-    })
-
     res.json({
       success: true,
       pantry,
@@ -209,6 +203,41 @@ const updatePantryItem = async (req, res) => {
 
     Object.assign(item, update)
     await pantry.save()
+
+    // Also update the corresponding FoodItem if it exists
+    if (item.foodId) {
+      const foodItemUpdate = {}
+
+      // Update fields that should be synced between pantry item and food item
+      if (update.category !== undefined) {
+        // Ensure categories are stored as strings (convert numbers to strings)
+        foodItemUpdate.category = Array.isArray(update.category)
+          ? update.category.map((cat) => String(cat))
+          : []
+      }
+      if (update.name !== undefined) {
+        foodItemUpdate.name = update.name
+      }
+      if (update.unit !== undefined) {
+        foodItemUpdate.unit = update.unit
+      }
+      if (update.price !== undefined) {
+        foodItemUpdate.price = update.price
+      }
+      if (update.calories !== undefined) {
+        foodItemUpdate.calories = update.calories
+      }
+
+      // Only update if there are fields to update
+      if (Object.keys(foodItemUpdate).length > 0) {
+        // Get the actual ObjectId (item.foodId might be populated or just an ID)
+        const foodItemId = item.foodId._id || item.foodId
+
+        await FoodItem.findByIdAndUpdate(foodItemId, foodItemUpdate, {
+          new: true,
+        })
+      }
+    }
 
     // Repopulate the pantry to get updated foodId data
     await pantry.populate({
