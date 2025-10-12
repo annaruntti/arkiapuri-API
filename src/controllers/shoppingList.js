@@ -13,15 +13,6 @@ exports.createShoppingList = async (req, res) => {
       name,
       description,
       items: items.map((item) => {
-        // Log each item's data before mapping
-        console.log("Item data before mapping:", {
-          name: item.name,
-          quantity: item.quantity,
-          quantities: item.quantities,
-          location: item.location,
-          quantityType: typeof item.quantity,
-        })
-
         // Set quantities based on location
         const parsedQuantity =
           typeof item.quantity === "number"
@@ -52,30 +43,7 @@ exports.createShoppingList = async (req, res) => {
       totalEstimatedPrice,
     })
 
-    // Log the shopping list before saving
-    console.log("Shopping list before save:", {
-      items: shoppingList.items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        quantities: item.quantities,
-        location: item.location,
-        quantityType: typeof item.quantity,
-      })),
-    })
-
     await shoppingList.save()
-
-    // Log the saved shopping list
-    const savedList = await ShoppingList.findById(shoppingList._id)
-    console.log("Saved shopping list:", {
-      items: savedList.items.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        quantities: item.quantities,
-        location: item.location,
-        quantityType: typeof item.quantity,
-      })),
-    })
 
     res.json({ success: true, shoppingList })
   } catch (error) {
@@ -88,8 +56,31 @@ exports.getShoppingLists = async (req, res) => {
   try {
     const shoppingLists = await ShoppingList.find({
       userId: req.user._id,
-    }).sort({ createdAt: -1 }) // Most recent first
-    res.json({ success: true, shoppingLists })
+    })
+      .populate({
+        path: "items.foodId",
+        select: "name category unit calories price image",
+      })
+      .sort({ createdAt: -1 }) // Most recent first
+
+    // Merge foodId data into items for easier access
+    const processedLists = shoppingLists.map((list) => {
+      const listObj = list.toObject()
+      listObj.items = listObj.items.map((item) => {
+        if (item.foodId && typeof item.foodId === "object") {
+          // Merge foodId data, but keep item's own data as priority
+          return {
+            ...item,
+            image: item.foodId.image || item.image,
+            category: item.category || item.foodId.category,
+          }
+        }
+        return item
+      })
+      return listObj
+    })
+
+    res.json({ success: true, shoppingLists: processedLists })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
   }
@@ -100,7 +91,8 @@ exports.updateShoppingList = async (req, res) => {
     const { id } = req.params
     const { items, totalEstimatedPrice } = req.body
 
-    const shoppingList = await ShoppingList.findOneAndUpdate(
+    // First, update the shopping list
+    await ShoppingList.findOneAndUpdate(
       { _id: id, userId: req.user._id },
       {
         items,
@@ -109,6 +101,15 @@ exports.updateShoppingList = async (req, res) => {
       { new: true }
     )
 
+    // Then fetch it again with populate (this is more reliable for nested refs)
+    const shoppingList = await ShoppingList.findOne({
+      _id: id,
+      userId: req.user._id,
+    }).populate({
+      path: "items.foodId",
+      select: "name category unit calories price image",
+    })
+
     if (!shoppingList) {
       return res.status(404).json({
         success: false,
@@ -116,7 +117,20 @@ exports.updateShoppingList = async (req, res) => {
       })
     }
 
-    res.json({ success: true, shoppingList })
+    // Merge foodId data into items
+    const listObj = shoppingList.toObject()
+    listObj.items = listObj.items.map((item) => {
+      if (item.foodId && typeof item.foodId === "object") {
+        return {
+          ...item,
+          image: item.foodId.image || item.image,
+          category: item.category || item.foodId.category,
+        }
+      }
+      return item
+    })
+
+    res.json({ success: true, shoppingList: listObj })
   } catch (error) {
     res.status(400).json({ success: false, error: error.message })
   }
@@ -159,7 +173,6 @@ exports.markItemAsBought = async (req, res) => {
     // Find or create pantry
     let pantry = await Pantry.findOne({ userId: req.user._id })
     if (!pantry) {
-      console.log("Creating new pantry for user")
       pantry = new Pantry({ userId: req.user._id, items: [] })
     }
 
@@ -206,7 +219,6 @@ exports.addItemsToShoppingList = async (req, res) => {
   try {
     const { id } = req.params
     const { items } = req.body
-    console.log("Adding items to shopping list:", { id, items })
 
     // Find the shopping list
     const shoppingList = await ShoppingList.findOne({
@@ -223,8 +235,6 @@ exports.addItemsToShoppingList = async (req, res) => {
 
     // Format new items to match schema structure
     const newItems = items.map((item) => {
-      // Log the incoming item data
-
       // Set quantities based on location
       const parsedQuantity =
         typeof item.quantity === "number"
@@ -252,18 +262,6 @@ exports.addItemsToShoppingList = async (req, res) => {
       }
     })
 
-    // Log the processed items
-    console.log(
-      "Processed items:",
-      newItems.map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        quantities: item.quantities,
-        location: item.location,
-        quantityType: typeof item.quantity,
-      }))
-    )
-
     // Add new items to the shopping list
     shoppingList.items.push(...newItems)
 
@@ -276,9 +274,6 @@ exports.addItemsToShoppingList = async (req, res) => {
     // Save the updated shopping list
     try {
       await shoppingList.save()
-
-      // Log the saved shopping list
-      const savedList = await ShoppingList.findById(id)
     } catch (saveError) {
       console.error("Error saving shopping list:", saveError)
       throw saveError
