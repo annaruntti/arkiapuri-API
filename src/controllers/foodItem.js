@@ -383,14 +383,6 @@ exports.uploadFoodItemImage = async (req, res) => {
     })
 
     if (!foodItem) {
-      // Check if food item exists at all
-      const anyFoodItem = await FoodItem.findById(foodItemId)
-      console.log("Food item exists in DB:", !!anyFoodItem)
-      if (anyFoodItem) {
-        console.log("Food item belongs to user:", anyFoodItem.user.toString())
-        console.log("Current user:", req.user._id.toString())
-      }
-
       return res.status(404).json({
         success: false,
         message: "Food item not found or unauthorized",

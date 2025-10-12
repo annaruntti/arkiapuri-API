@@ -29,7 +29,7 @@ const getPantry = async (req, res) => {
   try {
     let pantry = await Pantry.findOne({ userId: req.user._id }).populate({
       path: "items.foodId",
-      select: "category unit calories price",
+      // Select all fields to ensure image is included
     })
 
     if (!pantry) {
@@ -46,6 +46,7 @@ const getPantry = async (req, res) => {
         unit: foodItemData.unit || item.unit || "kpl",
         calories: foodItemData.calories || item.calories || 0,
         price: foodItemData.price || item.price || 0,
+        image: foodItemData.image || item.image || null,
       }
     })
 
@@ -188,8 +189,32 @@ const updatePantryItem = async (req, res) => {
       })
     }
 
+    // Handle foodId reference separately to avoid overwriting the reference
+    if (
+      update.foodId &&
+      typeof update.foodId === "object" &&
+      update.foodId._id
+    ) {
+      // If foodId is an object with _id, store only the _id reference
+      item.foodId = update.foodId._id
+      // Remove foodId from update to avoid overwriting
+      delete update.foodId
+    }
+
+    // Remove image from update as it's not part of the pantry item schema
+    // Image is stored in FoodItem and fetched through population
+    if (update.image) {
+      delete update.image
+    }
+
     Object.assign(item, update)
     await pantry.save()
+
+    // Repopulate the pantry to get updated foodId data
+    await pantry.populate({
+      path: "items.foodId",
+      // Select all fields to ensure image is included
+    })
 
     res.json({ success: true, pantry })
   } catch (error) {

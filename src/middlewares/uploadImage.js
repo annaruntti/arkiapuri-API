@@ -52,4 +52,24 @@ const mealUpload = multer({
   },
 }).single("mealImage") // This is to specify the expected field name for meal images
 
-module.exports = { upload, mealUpload }
+// Create a new multer instance for food item images
+const foodItemUpload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    const filetypes = /jpeg|jpg|png|heic|heif/
+    const mimetype = filetypes.test(file.mimetype)
+    const extname = filetypes.test(
+      path.extname(file.originalname).toLowerCase()
+    )
+
+    if (mimetype && extname) {
+      return cb(null, true)
+    }
+    cb(new Error("Only .png, .jpg, .jpeg, .heic and .heif format allowed!"))
+  },
+}).single("mealImage") // Using same field name as frontend sends
+
+module.exports = { upload, mealUpload, foodItemUpload }

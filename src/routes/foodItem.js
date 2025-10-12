@@ -1,6 +1,6 @@
 const express = require("express")
 const { isAuth } = require("../middlewares/auth")
-const { mealUpload } = require("../middlewares/uploadImage")
+const { foodItemUpload } = require("../middlewares/uploadImage")
 const {
   getFoodItems,
   createFoodItem,
@@ -36,7 +36,7 @@ router.post("/food-items/:foodItemId/move", isAuth, moveItem)
 router.post(
   "/food-items/:foodItemId/image",
   isAuth,
-  mealUpload,
+  foodItemUpload,
   uploadFoodItemImage
 )
 
