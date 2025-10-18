@@ -14,6 +14,7 @@ exports.createMeal = async (req, res) => {
       foodItems,
       defaultRoles,
       plannedCookingDate,
+      plannedEatingDates,
       createdAt,
     } = req.body
 
@@ -31,6 +32,17 @@ exports.createMeal = async (req, res) => {
         success: false,
         message: "Invalid plannedCookingDate format",
       })
+    }
+
+    // Validate plannedEatingDates if provided
+    let validatedEatingDates = []
+    if (plannedEatingDates && Array.isArray(plannedEatingDates) && plannedEatingDates.length > 0) {
+      validatedEatingDates = plannedEatingDates.filter(date => date && Date.parse(date))
+    }
+    
+    // If no eating dates provided, default to cooking date if available
+    if (validatedEatingDates.length === 0 && plannedCookingDate) {
+      validatedEatingDates = [plannedCookingDate]
     }
 
     // Validate foodItems and check are they belonging to the user
@@ -92,6 +104,7 @@ exports.createMeal = async (req, res) => {
       foodItems,
       defaultRoles: defaultRoles,
       plannedCookingDate,
+      plannedEatingDates: validatedEatingDates,
       user: req.user._id,
       createdAt,
     }
@@ -146,6 +159,24 @@ exports.updateMeal = async (req, res) => {
         success: false,
         message: "Meal not found or unauthorized",
       })
+    }
+
+    // Validate and process plannedEatingDates if provided
+    if (updateData.plannedEatingDates !== undefined) {
+      if (Array.isArray(updateData.plannedEatingDates)) {
+        // Filter out invalid dates
+        updateData.plannedEatingDates = updateData.plannedEatingDates.filter(
+          date => date && Date.parse(date)
+        )
+        
+        // If no eating dates after validation, default to cooking date
+        if (updateData.plannedEatingDates.length === 0) {
+          const cookingDate = updateData.plannedCookingDate || meal.plannedCookingDate
+          if (cookingDate) {
+            updateData.plannedEatingDates = [cookingDate]
+          }
+        }
+      }
     }
 
     // Update the meal

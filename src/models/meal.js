@@ -64,6 +64,10 @@ const mealSchema = new mongoose.Schema({
   plannedCookingDate: {
     type: Date,
   },
+  plannedEatingDates: {
+    type: [Date],
+    default: [],
+  },
   createdAt: {
     type: Date,
     default: Date.now,
