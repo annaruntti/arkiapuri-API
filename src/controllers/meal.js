@@ -36,10 +36,16 @@ exports.createMeal = async (req, res) => {
 
     // Validate plannedEatingDates if provided
     let validatedEatingDates = []
-    if (plannedEatingDates && Array.isArray(plannedEatingDates) && plannedEatingDates.length > 0) {
-      validatedEatingDates = plannedEatingDates.filter(date => date && Date.parse(date))
+    if (
+      plannedEatingDates &&
+      Array.isArray(plannedEatingDates) &&
+      plannedEatingDates.length > 0
+    ) {
+      validatedEatingDates = plannedEatingDates.filter(
+        (date) => date && Date.parse(date)
+      )
     }
-    
+
     // If no eating dates provided, default to cooking date if available
     if (validatedEatingDates.length === 0 && plannedCookingDate) {
       validatedEatingDates = [plannedCookingDate]
@@ -165,13 +171,32 @@ exports.updateMeal = async (req, res) => {
     if (updateData.plannedEatingDates !== undefined) {
       if (Array.isArray(updateData.plannedEatingDates)) {
         // Filter out invalid dates
-        updateData.plannedEatingDates = updateData.plannedEatingDates.filter(
-          date => date && Date.parse(date)
+        const newDates = updateData.plannedEatingDates.filter(
+          (date) => date && Date.parse(date)
         )
-        
+
+        // Merge with existing eating dates to avoid duplicates
+        const existingDates = meal.plannedEatingDates || []
+        const allDates = [...existingDates, ...newDates]
+
+        // Remove duplicates by converting to Date objects and back to ISO strings
+        const uniqueDates = [
+          ...new Set(
+            allDates.map((date) => {
+              // Normalize dates to start of day to avoid timezone issues
+              const normalizedDate = new Date(date)
+              normalizedDate.setUTCHours(0, 0, 0, 0)
+              return normalizedDate.toISOString()
+            })
+          ),
+        ]
+
+        updateData.plannedEatingDates = uniqueDates
+
         // If no eating dates after validation, default to cooking date
         if (updateData.plannedEatingDates.length === 0) {
-          const cookingDate = updateData.plannedCookingDate || meal.plannedCookingDate
+          const cookingDate =
+            updateData.plannedCookingDate || meal.plannedCookingDate
           if (cookingDate) {
             updateData.plannedEatingDates = [cookingDate]
           }
