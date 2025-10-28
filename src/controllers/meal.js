@@ -170,28 +170,18 @@ exports.updateMeal = async (req, res) => {
     // Validate and process plannedEatingDates if provided
     if (updateData.plannedEatingDates !== undefined) {
       if (Array.isArray(updateData.plannedEatingDates)) {
-        // Filter out invalid dates
-        const newDates = updateData.plannedEatingDates.filter(
-          (date) => date && Date.parse(date)
-        )
+        // Filter out invalid dates and normalize them
+        const validDates = updateData.plannedEatingDates
+          .filter((date) => date && Date.parse(date))
+          .map((date) => {
+            // Normalize dates to start of day to avoid timezone issues
+            const normalizedDate = new Date(date)
+            normalizedDate.setUTCHours(0, 0, 0, 0)
+            return normalizedDate.toISOString()
+          })
 
-        // Merge with existing eating dates to avoid duplicates
-        const existingDates = meal.plannedEatingDates || []
-        const allDates = [...existingDates, ...newDates]
-
-        // Remove duplicates by converting to Date objects and back to ISO strings
-        const uniqueDates = [
-          ...new Set(
-            allDates.map((date) => {
-              // Normalize dates to start of day to avoid timezone issues
-              const normalizedDate = new Date(date)
-              normalizedDate.setUTCHours(0, 0, 0, 0)
-              return normalizedDate.toISOString()
-            })
-          ),
-        ]
-
-        updateData.plannedEatingDates = uniqueDates
+        // Remove duplicates
+        updateData.plannedEatingDates = [...new Set(validDates)]
 
         // If no eating dates after validation, default to cooking date
         if (updateData.plannedEatingDates.length === 0) {
