@@ -12,19 +12,22 @@ const populateUserHousehold = async (req, res, next) => {
 
 /**
  * Build query object for fetching household or user-specific data
- * If user belongs to a household, query by household
- * Otherwise, query by userId
+ * Users should see:
+ * 1. Their own data (items they created)
+ * 2. If in a household: also see all household data
  *
  * @param {Object} user - The authenticated user object
  * @param {string} userField - The field name to use for user ID (default: 'userId', can be 'user' for Meal model)
- * @returns {Object} Query object with either household or userId/user
+ * @returns {Object} Query object with $or condition for user and household data
  */
 const getDataQuery = (user, userField = "userId") => {
   if (user.household) {
-    // User is part of a household, fetch household data
-    return { household: user.household }
+    // User is part of a household, fetch both user's data AND household data
+    return {
+      $or: [{ [userField]: user._id }, { household: user.household }],
+    }
   }
-  // User is not part of a household, fetch user-specific data
+  // User is not part of a household, fetch only user-specific data
   return { [userField]: user._id }
 }
 
