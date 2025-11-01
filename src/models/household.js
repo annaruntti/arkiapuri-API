@@ -93,16 +93,20 @@ const householdSchema = new mongoose.Schema(
 
 // Method to check if a user is a member of this household
 householdSchema.methods.isMember = function (userId) {
-  return this.members.some(
-    (member) => member.userId.toString() === userId.toString()
-  )
+  return this.members.some((member) => {
+    // Handle both populated and unpopulated userId
+    const memberId = member.userId._id || member.userId
+    return memberId.toString() === userId.toString()
+  })
 }
 
 // Method to get user's role in household
 householdSchema.methods.getUserRole = function (userId) {
-  const member = this.members.find(
-    (m) => m.userId.toString() === userId.toString()
-  )
+  const member = this.members.find((m) => {
+    // Handle both populated and unpopulated userId
+    const memberId = m.userId._id || m.userId
+    return memberId.toString() === userId.toString()
+  })
   return member ? member.role : null
 }
 
