@@ -69,17 +69,23 @@ exports.getHousehold = async (req, res) => {
       .populate("invitations.invitedBy", "username")
 
     if (!household) {
-      return res.status(404).json({
-        success: false,
-        message: "Perhettä ei löytynyt",
+      // Household doesn't exist but user has reference - clean it up
+      await User.findByIdAndUpdate(userId, { household: null })
+      return res.json({
+        success: true,
+        household: null,
+        message: "Et ole vielä osa perhettä",
       })
     }
 
     // Check if user is actually a member
     if (!household.isMember(userId)) {
-      return res.status(403).json({
-        success: false,
-        message: "Sinulla ei ole oikeutta nähdä tätä perhettä",
+      // User has reference but is not a member - clean up and return null
+      await User.findByIdAndUpdate(userId, { household: null })
+      return res.json({
+        success: true,
+        household: null,
+        message: "Et ole vielä osa perhettä",
       })
     }
 
