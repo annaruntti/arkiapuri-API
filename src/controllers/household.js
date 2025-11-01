@@ -39,9 +39,14 @@ exports.createHousehold = async (req, res) => {
     // Update user's household reference
     await User.findByIdAndUpdate(userId, { household: household._id })
 
+    // Get the populated household to return
+    const populatedHousehold = await Household.findById(household._id)
+      .populate("members.userId", "username email profileImage")
+      .populate("owner", "username email profileImage")
+
     res.json({
       success: true,
-      household,
+      household: populatedHousehold,
       message: "Perhe luotu onnistuneesti",
     })
   } catch (error) {
