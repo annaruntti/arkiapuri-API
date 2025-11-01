@@ -1,6 +1,10 @@
 const ShoppingList = require("../models/shoppingList")
 const Pantry = require("../models/pantry")
 const FoodItem = require("../models/foodItem")
+const {
+  getDataOwnership,
+  getDataQuery,
+} = require("../helpers/householdHelpers")
 
 exports.createShoppingList = async (req, res) => {
   try {
@@ -8,8 +12,10 @@ exports.createShoppingList = async (req, res) => {
 
     // Log incoming items to debug
 
+    const ownership = getDataOwnership(req.user)
     const shoppingList = new ShoppingList({
-      userId: req.user._id,
+      userId: ownership.userId,
+      household: ownership.household,
       name,
       description,
       items: items.map((item) => {
@@ -54,9 +60,8 @@ exports.createShoppingList = async (req, res) => {
 
 exports.getShoppingLists = async (req, res) => {
   try {
-    const shoppingLists = await ShoppingList.find({
-      userId: req.user._id,
-    })
+    const query = getDataQuery(req.user)
+    const shoppingLists = await ShoppingList.find(query)
       .populate({
         path: "items.foodId",
         select: "name category unit calories price image",

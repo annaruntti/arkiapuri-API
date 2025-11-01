@@ -83,6 +83,11 @@ const mealSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+  household: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Household",
+    default: null,
+  },
   image: {
     url: {
       type: String,
@@ -99,6 +104,7 @@ mealSchema.set("toObject", { getters: true })
 
 // Create indexes for query performance
 mealSchema.index({ user: 1 })
+mealSchema.index({ household: 1 })
 mealSchema.index({ user: 1, name: 1 })
 
 module.exports = mongoose.model("Meal", mealSchema)

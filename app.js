@@ -50,6 +50,7 @@ const shoppingListRouter = require("./src/routes/shoppingList")
 const pantryRouter = require("./src/routes/pantry")
 const visionRouter = require("./src/routes/vision")
 const openFoodFactsRouter = require("./src/routes/openFoodFacts")
+const householdRouter = require("./src/routes/household")
 
 const User = require("./src/models/user")
 
@@ -152,6 +153,7 @@ app.use(shoppingListRouter)
 app.use(pantryRouter)
 app.use(visionRouter)
 app.use("/api/openfoodfacts", openFoodFactsRouter)
+app.use(householdRouter)
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 

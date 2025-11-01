@@ -52,6 +52,12 @@ const userSchema = new mongoose.Schema(
     // Password reset fields
     resetPasswordToken: String,
     resetPasswordExpiry: Date,
+    // Household/Family reference
+    household: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Household",
+      default: null,
+    },
   },
   {
     timestamps: true,

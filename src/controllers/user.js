@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken")
 const User = require("../models/user")
+const Household = require("../models/household")
 const sharp = require("sharp")
 const cloudinary = require("../helper/imageUpload")
 const cloudinaryV2 = require("cloudinary").v2
@@ -21,12 +22,37 @@ exports.createUser = async (req, res) => {
       success: false,
       message: "This email is already in use, try sign-in",
     })
+  
   const user = await User({
     username,
     email,
     password,
   })
   await user.save()
+
+  // Automatically create a household for the new user
+  try {
+    const household = new Household({
+      name: `${username}n perhe`,
+      owner: user._id,
+      members: [
+        {
+          userId: user._id,
+          role: "owner",
+          joinedAt: new Date(),
+        },
+      ],
+    })
+    await household.save()
+
+    // Update user with household reference
+    user.household = household._id
+    await user.save()
+  } catch (householdError) {
+    console.error("Error creating household for new user:", householdError)
+    // Continue even if household creation fails
+  }
+
   res.json({ success: true, user })
 }
 

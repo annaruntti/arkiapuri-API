@@ -3,6 +3,10 @@ const User = require("../models/user")
 const FoodItem = require("../models/foodItem")
 const cloudinary = require("../helper/imageUpload")
 const fs = require("fs")
+const {
+  getDataOwnership,
+  getDataQuery,
+} = require("../helpers/householdHelpers")
 
 exports.createMeal = async (req, res) => {
   try {
@@ -102,6 +106,7 @@ exports.createMeal = async (req, res) => {
     }
 
     // Create meal data object
+    const ownership = getDataOwnership(req.user)
     const mealData = {
       name,
       recipe,
@@ -111,7 +116,8 @@ exports.createMeal = async (req, res) => {
       defaultRoles: defaultRoles,
       plannedCookingDate,
       plannedEatingDates: validatedEatingDates,
-      user: req.user._id,
+      user: ownership.userId,
+      household: ownership.household,
       createdAt,
     }
 
@@ -137,10 +143,11 @@ exports.createMeal = async (req, res) => {
   }
 }
 
-// Get all meals for the current user
+// Get all meals for the current user or household
 exports.getMeals = async (req, res) => {
   try {
-    const meals = await Meal.find({ user: req.user._id }).populate({
+    const query = getDataQuery(req.user)
+    const meals = await Meal.find(query).populate({
       path: "foodItems",
       select:
         "name quantity unit category calories price location quantities locations",

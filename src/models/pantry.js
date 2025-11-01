@@ -55,6 +55,11 @@ const pantrySchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    household: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Household",
+      default: null,
+    },
     items: [pantryItemSchema],
   },
   {
@@ -64,6 +69,7 @@ const pantrySchema = new mongoose.Schema(
 
 // Indexes
 pantrySchema.index({ userId: 1 })
+pantrySchema.index({ household: 1 })
 pantrySchema.index({ "items.expirationDate": 1 })
 pantrySchema.index({ "items.name": 1 })
 

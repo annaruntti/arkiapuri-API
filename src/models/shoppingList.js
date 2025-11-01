@@ -49,6 +49,11 @@ const shoppingListSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    household: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Household",
+      default: null,
+    },
     name: {
       type: String,
       required: true,
@@ -68,5 +73,6 @@ const shoppingListSchema = new mongoose.Schema(
 )
 
 shoppingListSchema.index({ userId: 1 })
+shoppingListSchema.index({ household: 1 })
 
 module.exports = mongoose.model("ShoppingList", shoppingListSchema)

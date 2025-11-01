@@ -1,5 +1,9 @@
 const Pantry = require("../models/pantry")
 const FoodItem = require("../models/foodItem")
+const {
+  getDataOwnership,
+  getDataQuery,
+} = require("../helpers/householdHelpers")
 
 // Helper function to validate item data
 const validateItemData = (item) => {
@@ -27,13 +31,15 @@ const validateItemData = (item) => {
 // Get pantry
 const getPantry = async (req, res) => {
   try {
-    let pantry = await Pantry.findOne({ userId: req.user._id }).populate({
+    const query = getDataQuery(req.user)
+    let pantry = await Pantry.findOne(query).populate({
       path: "items.foodId",
       // Select all fields to ensure image is included
     })
 
     if (!pantry) {
-      pantry = new Pantry({ userId: req.user._id, items: [] })
+      const ownership = getDataOwnership(req.user)
+      pantry = new Pantry({ ...ownership, items: [] })
       await pantry.save()
     }
 

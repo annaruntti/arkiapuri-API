@@ -7,7 +7,7 @@ exports.isAuth = async (req, res, next) => {
 
     try {
       const decode = jwt.verify(token, process.env.JWT_SECRET)
-      const user = await User.findById(decode.userId)
+      const user = await User.findById(decode.userId).populate("household")
       if (!user) {
         return res.json({ success: false, message: "unauthorized access!" })
       }
