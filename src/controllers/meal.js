@@ -146,7 +146,7 @@ exports.createMeal = async (req, res) => {
 // Get all meals for the current user or household
 exports.getMeals = async (req, res) => {
   try {
-    const query = getDataQuery(req.user)
+    const query = getDataQuery(req.user, "user")
     const meals = await Meal.find(query).populate({
       path: "foodItems",
       select:

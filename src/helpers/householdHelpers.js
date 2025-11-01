@@ -16,15 +16,16 @@ const populateUserHousehold = async (req, res, next) => {
  * Otherwise, query by userId
  *
  * @param {Object} user - The authenticated user object
- * @returns {Object} Query object with either household or userId
+ * @param {string} userField - The field name to use for user ID (default: 'userId', can be 'user' for Meal model)
+ * @returns {Object} Query object with either household or userId/user
  */
-const getDataQuery = (user) => {
+const getDataQuery = (user, userField = "userId") => {
   if (user.household) {
     // User is part of a household, fetch household data
     return { household: user.household }
   }
   // User is not part of a household, fetch user-specific data
-  return { userId: user._id }
+  return { [userField]: user._id }
 }
 
 /**
