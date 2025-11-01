@@ -44,7 +44,6 @@ const householdSchema = new mongoose.Schema(
         invitationCode: {
           type: String,
           required: true,
-          unique: true,
         },
         status: {
           type: String,
