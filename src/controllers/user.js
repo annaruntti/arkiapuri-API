@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken")
 const User = require("../models/user")
 const Household = require("../models/household")
+const Invitation = require("../models/invitation")
 const sharp = require("sharp")
 const cloudinary = require("../helper/imageUpload")
 const cloudinaryV2 = require("cloudinary").v2
@@ -30,27 +31,38 @@ exports.createUser = async (req, res) => {
   })
   await user.save()
 
-  // Automatically create a household for the new user
-  try {
-    const household = new Household({
-      name: `${username}n perhe`,
-      owner: user._id,
-      members: [
-        {
-          userId: user._id,
-          role: "owner",
-          joinedAt: new Date(),
-        },
-      ],
-    })
-    await household.save()
+  // Check if user has a pending invitation
+  const pendingInvitation = await Invitation.findOne({
+    email: email.toLowerCase(),
+    status: "pending",
+    expiresAt: { $gt: new Date() }
+  })
 
-    // Update user with household reference
-    user.household = household._id
-    await user.save()
-  } catch (householdError) {
-    console.error("Error creating household for new user:", householdError)
-    // Continue even if household creation fails
+  // Only create a household if there's no pending invitation
+  if (!pendingInvitation) {
+    try {
+      const household = new Household({
+        name: `${username}n perhe`,
+        owner: user._id,
+        members: [
+          {
+            userId: user._id,
+            role: "owner",
+            joinedAt: new Date(),
+          },
+        ],
+      })
+      await household.save()
+
+      // Update user with household reference
+      user.household = household._id
+      await user.save()
+    } catch (householdError) {
+      console.error("Error creating household for new user:", householdError)
+      // Continue even if household creation fails
+    }
+  } else {
+    console.log(`User ${email} has pending invitation - skipping household creation`)
   }
 
   res.json({ success: true, user })

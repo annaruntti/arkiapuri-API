@@ -1,6 +1,9 @@
 const Household = require("../models/household")
 const User = require("../models/user")
+const Invitation = require("../models/invitation")
 const crypto = require("crypto")
+const { v4: uuidv4 } = require("uuid")
+const { sendFamilyInvitation } = require("../services/emailService")
 
 // Generate a unique invitation code
 const generateInvitationCode = () => {
@@ -146,7 +149,7 @@ exports.updateHousehold = async (req, res) => {
   }
 }
 
-// Invite someone to household
+// Invite someone to household (with email)
 exports.inviteToHousehold = async (req, res) => {
   try {
     const userId = req.user._id
@@ -159,7 +162,17 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Virheellinen sähköpostiosoite",
+      })
+    }
+
     const household = await Household.findById(req.user.household)
+      .populate("owner", "username email")
 
     if (!household) {
       return res.status(404).json({
@@ -177,7 +190,7 @@ exports.inviteToHousehold = async (req, res) => {
     }
 
     // Check if email is already a member
-    const existingUser = await User.findOne({ email })
+    const existingUser = await User.findOne({ email: email.toLowerCase() })
     if (existingUser && household.isMember(existingUser._id)) {
       return res.status(400).json({
         success: false,
@@ -186,9 +199,12 @@ exports.inviteToHousehold = async (req, res) => {
     }
 
     // Check if there's already a pending invitation for this email
-    const existingInvitation = household.invitations.find(
-      (inv) => inv.email === email && inv.status === "pending"
-    )
+    const existingInvitation = await Invitation.findOne({
+      email: email.toLowerCase(),
+      household: household._id,
+      status: "pending",
+      expiresAt: { $gt: new Date() },
+    })
 
     if (existingInvitation) {
       return res.status(400).json({
@@ -197,24 +213,48 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Create invitation
-    const invitationCode = generateInvitationCode()
-    household.invitations.push({
-      email,
+    // Generate unique invitation token
+    const invitationToken = uuidv4()
+
+    // Create invitation in separate collection
+    const invitation = new Invitation({
+      email: email.toLowerCase(),
+      household: household._id,
       invitedBy: userId,
-      invitationCode,
+      invitationToken,
       status: "pending",
     })
 
-    await household.save()
+    await invitation.save()
 
-    // TODO: Send email with invitation link
-    // For now, just return the invitation code
+    // Send email with invitation link
+    const frontendUrl = process.env.FRONTEND_URL || "arkiapuri://"
+    const webUrl = process.env.WEB_URL || "http://localhost:8081"
+    const inviteLink = `${frontendUrl}accept-invite/${invitationToken}`
+    const webInviteLink = `${webUrl}/accept-invite/${invitationToken}`
+
+    const emailResult = await sendFamilyInvitation({
+      to: email,
+      inviterName: req.user.username || req.user.email,
+      householdName: household.name,
+      inviteLink,
+      webInviteLink,
+      invitationToken,
+    })
+
+    if (!emailResult.success) {
+      // If email fails, still return success but log the error
+      console.error("Failed to send invitation email:", emailResult.error)
+      return res.json({
+        success: true,
+        message: `Kutsu luotu osoitteelle ${email} (sähköpostin lähetys epäonnistui)`,
+        inviteLink, // Return link in case email fails
+      })
+    }
 
     res.json({
       success: true,
-      invitationCode,
-      message: `Kutsu lähetetty osoitteeseen ${email}`,
+      message: `Kutsusähköposti lähetetty osoitteeseen ${email}`,
     })
   } catch (error) {
     console.error("Error inviting to household:", error)
@@ -520,6 +560,163 @@ exports.deleteHousehold = async (req, res) => {
     })
   } catch (error) {
     console.error("Error deleting household:", error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+}
+
+// Get invitation details by token (no auth required)
+exports.getInvitationByToken = async (req, res) => {
+  try {
+    const { token } = req.params
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Kutsukoodi vaaditaan",
+      })
+    }
+
+    // Find invitation by token
+    const invitation = await Invitation.findOne({ invitationToken: token })
+      .populate("household", "name members")
+      .populate("invitedBy", "username email")
+      .populate({
+        path: "household",
+        populate: {
+          path: "members.userId",
+          select: "username email",
+        },
+      })
+
+    if (!invitation) {
+      return res.status(404).json({
+        success: false,
+        message: "Kutsu ei kelpaa tai sitä ei löydy",
+      })
+    }
+
+    // Check if invitation is valid
+    if (!invitation.isValid()) {
+      // Mark as expired if it's past the expiry date
+      if (invitation.status === "pending" && new Date() > invitation.expiresAt) {
+        await invitation.markExpired()
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Kutsu on vanhentunut tai virheellinen",
+      })
+    }
+
+    res.json({
+      success: true,
+      invitation: {
+        _id: invitation._id,
+        email: invitation.email,
+        status: invitation.status,
+        household: invitation.household,
+        invitedBy: invitation.invitedBy,
+        createdAt: invitation.createdAt,
+        expiresAt: invitation.expiresAt,
+      },
+    })
+  } catch (error) {
+    console.error("Error fetching invitation:", error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+}
+
+// Accept invitation using token
+exports.acceptInvitation = async (req, res) => {
+  try {
+    const userId = req.user._id
+    const { invitationToken } = req.body
+
+    if (!invitationToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Kutsukoodi vaaditaan",
+      })
+    }
+
+    // Check if user already has a household
+    if (req.user.household) {
+      return res.status(400).json({
+        success: false,
+        message: "Olet jo osa perhettä. Poistu ensin nykyisestä perheestä.",
+      })
+    }
+
+    // Find invitation by token
+    const invitation = await Invitation.findOne({ invitationToken })
+      .populate("household")
+
+    if (!invitation) {
+      return res.status(404).json({
+        success: false,
+        message: "Kutsu ei kelpaa tai sitä ei löydy",
+      })
+    }
+
+    // Check if invitation is valid
+    if (!invitation.isValid()) {
+      // Mark as expired if it's past the expiry date
+      if (invitation.status === "pending" && new Date() > invitation.expiresAt) {
+        await invitation.markExpired()
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Kutsu on vanhentunut tai virheellinen",
+      })
+    }
+
+    const household = invitation.household
+
+    if (!household) {
+      return res.status(404).json({
+        success: false,
+        message: "Perhettä ei löytynyt",
+      })
+    }
+
+    // Optional: Warn if email doesn't match but allow join anyway
+    if (invitation.email !== req.user.email.toLowerCase()) {
+      console.warn(
+        `User ${req.user.email} accepting invitation for ${invitation.email}`
+      )
+    }
+
+    // Add user to household
+    household.members.push({
+      userId: userId,
+      role: "member",
+      joinedAt: new Date(),
+    })
+
+    await household.save()
+
+    // Update invitation status
+    invitation.status = "accepted"
+    invitation.acceptedAt = new Date()
+    invitation.acceptedBy = userId
+    await invitation.save()
+
+    // Update user's household reference
+    await User.findByIdAndUpdate(userId, { household: household._id })
+
+    // Get populated household to return
+    const populatedHousehold = await Household.findById(household._id)
+      .populate("members.userId", "username email profileImage")
+      .populate("owner", "username email profileImage")
+
+    res.json({
+      success: true,
+      household: populatedHousehold,
+      message: "Liityit perheeseen onnistuneesti",
+    })
+  } catch (error) {
+    console.error("Error accepting invitation:", error)
     res.status(500).json({ success: false, error: error.message })
   }
 }

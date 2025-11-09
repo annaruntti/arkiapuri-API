@@ -13,19 +13,95 @@ This is API for Arkiapuri mobile app. You will find mobile app project from here
 
 ## Environment Variables
 
-See `.env.example` for required environment variables.
+### Required Variables
+
+#### Core Configuration
+- `NODE_ENV` - Environment (development/production)
+- `PORT` - Server port (default: 3000)
+- `MONGODB_URI` - MongoDB connection string
+- `JWT_SECRET` - Secret key for JWT tokens
+
+#### Cloudinary (Image Uploads)
+- `CLOUDINARY_USER_NAME` - Cloudinary username
+- `CLOUDINARY_API_KEY` - Cloudinary API key
+- `CLOUDINARY_API_KEY_SECRET` - Cloudinary API secret
+
+#### Email Service (Family Invitations)
+- `EMAIL_SERVICE` - Email service provider (e.g., 'gmail', 'sendgrid', 'mailgun')
+- `EMAIL_USER` - Email username/address
+- `EMAIL_PASSWORD` - Email password or API key
+- `EMAIL_FROM_ADDRESS` - Sender email address (e.g., noreply@arkiapuri.fi)
+- `FRONTEND_URL` - Mobile app deep link scheme (e.g., arkiapuri://)
+- `WEB_URL` - Web app URL for email links (e.g., http://localhost:8081 or https://yourdomain.com)
+
+#### Optional
+- `CORS_ORIGIN` - Allowed CORS origins
+- `GOOGLE_APPLICATION_CREDENTIALS` - Path to Google Vision API credentials
+
+### Email Service Setup
+
+#### Using Gmail
+1. Enable 2-Factor Authentication on your Gmail account
+2. Generate an App Password: https://myaccount.google.com/apppasswords
+3. Set environment variables:
+   ```
+   EMAIL_SERVICE=gmail
+   EMAIL_USER=your-email@gmail.com
+   EMAIL_PASSWORD=your-app-specific-password
+   EMAIL_FROM_ADDRESS=your-email@gmail.com
+   ```
+
+#### Using SendGrid
+1. Sign up for SendGrid account
+2. Create an API key
+3. Set environment variables:
+   ```
+   EMAIL_SERVICE=sendgrid
+   EMAIL_USER=apikey
+   EMAIL_PASSWORD=your-sendgrid-api-key
+   EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+   ```
+   Note: Verify your sender email in SendGrid dashboard
+
+#### For Development/Testing
+Use Mailtrap (https://mailtrap.io) to test emails without sending real ones:
+```
+EMAIL_SERVICE=smtp
+EMAIL_USER=your-mailtrap-username
+EMAIL_PASSWORD=your-mailtrap-password
+```
 
 ## API Endpoints
 
-- Auth
-  - POST /sign-in
-  - POST /create-user
-  - POST /sign-out
-- User Profile
-  - GET /profile
-  - POST /upload-profile
-  - POST /profile/image
-    ...
+### Authentication
+- POST `/sign-in` - User login
+- POST `/create-user` - User registration
+- POST `/sign-out` - User logout
+
+### User Profile
+- GET `/profile` - Get user profile
+- POST `/upload-profile` - Upload profile data
+- POST `/profile/image` - Upload profile image
+
+### Household Management
+- POST `/household` - Create a new household
+- GET `/household` - Get household information
+- PUT `/household` - Update household settings
+- DELETE `/household` - Delete household (owner only)
+
+### Family Invitations
+- POST `/household/invite` - Send email invitation to join household
+- GET `/household/invitation/:token` - Get invitation details (no auth required)
+- POST `/household/accept-invite` - Accept invitation using token
+- POST `/household/join` - Join household with code (legacy support)
+
+### Household Members
+- POST `/household/leave` - Leave current household
+- DELETE `/household/members/:memberId` - Remove member (admin/owner only)
+- PUT `/household/members/:memberId/role` - Update member role (owner only)
+
+### Meals, Shopping Lists, Pantry, etc.
+For complete API documentation, see the Swagger docs at `/api-docs`
 
 ## Security
 
@@ -108,6 +184,11 @@ Ensure these environment variables are set in Railway project:
 - `CLOUDINARY_API_KEY`: Your Cloudinary API key
 - `CLOUDINARY_API_KEY_SECRET`: Your Cloudinary API secret
 - `CORS_ORIGIN`: Set to your frontend URL (e.g., "https://your-frontend-url.com")
+- `EMAIL_SERVICE`: Your email service provider (e.g., "sendgrid", "ses")
+- `EMAIL_USER`: Email service username/API key
+- `EMAIL_PASSWORD`: Email service password/secret
+- `EMAIL_FROM_ADDRESS`: Sender email address (e.g., "noreply@arkiapuri.fi")
+- `FRONTEND_URL`: Your mobile app deep link or web URL (e.g., "arkiapuri://app")
 - `GOOGLE_CALLBACK_URL`: Set to "https://your-railway-url/auth/google/callback"
 
 ### Troubleshooting Production Deployment

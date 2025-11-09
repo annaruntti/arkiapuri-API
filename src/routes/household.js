@@ -10,6 +10,8 @@ const {
   removeMember,
   updateMemberRole,
   deleteHousehold,
+  getInvitationByToken,
+  acceptInvitation,
 } = require("../controllers/household")
 
 const router = express.Router()
@@ -23,10 +25,16 @@ router.get("/household", isAuth, getHousehold)
 // Update household settings
 router.put("/household", isAuth, updateHousehold)
 
-// Invite someone to household
+// Invite someone to household (sends email)
 router.post("/household/invite", isAuth, inviteToHousehold)
 
-// Join household with invitation code
+// Get invitation details by token (no auth required - token validates request)
+router.get("/household/invitation/:token", getInvitationByToken)
+
+// Accept invitation using token
+router.post("/household/accept-invite", isAuth, acceptInvitation)
+
+// Join household with invitation code (legacy support)
 router.post("/household/join", isAuth, joinHousehold)
 
 // Leave household
