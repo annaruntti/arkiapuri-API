@@ -7,6 +7,8 @@ const {
   uploadProfile,
   signOut,
   getUserProfile,
+  updateUserProfile,
+  deleteUserAccount,
   uploadProfileImage,
 } = require("../controllers/user")
 const { isAuth } = require("../middlewares/auth")
@@ -38,6 +40,10 @@ router.post("/sign-out", isAuth, signOut)
 router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 
 router.get("/profile", isAuth, getUserProfile)
+
+router.put("/profile", isAuth, updateUserProfile)
+
+router.delete("/profile", isAuth, deleteUserAccount)
 
 router.post(
   "/profile/image",

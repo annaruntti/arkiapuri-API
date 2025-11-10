@@ -196,6 +196,107 @@ exports.getUserProfile = async (req, res) => {
   }
 }
 
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const { username, currentPassword, newPassword } = req.body
+    const userId = req.user._id
+
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" })
+    }
+
+    // Update username if provided
+    if (username && username !== user.username) {
+      user.username = username
+    }
+
+    // Update password if provided
+    if (currentPassword && newPassword) {
+      // Verify current password
+      const isMatch = await user.comparePassword(currentPassword)
+      if (!isMatch) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Nykyinen salasana on virheellinen" 
+        })
+      }
+
+      // Update to new password
+      user.password = newPassword
+    }
+
+    await user.save()
+
+    // Return updated user without password
+    const updatedUser = await User.findById(userId).select("-password")
+    
+    res.json({ 
+      success: true, 
+      user: updatedUser,
+      message: "Profile updated successfully" 
+    })
+  } catch (error) {
+    console.error("Error updating user profile:", error)
+    res.status(500).json({ success: false, message: "Server error" })
+  }
+}
+
+exports.deleteUserAccount = async (req, res) => {
+  try {
+    const userId = req.user._id
+
+    const user = await User.findById(userId).populate('household')
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" })
+    }
+
+    // If user has a household, remove them from it
+    if (user.household) {
+      const Household = require("../models/household")
+      const household = await Household.findById(user.household)
+      
+      if (household) {
+        // Remove user from household members
+        household.members = household.members.filter(
+          memberId => memberId.toString() !== userId.toString()
+        )
+
+        // If user was the admin and there are other members, assign new admin
+        if (household.admin && household.admin.toString() === userId.toString()) {
+          if (household.members.length > 0) {
+            household.admin = household.members[0]
+            await household.save()
+          } else {
+            // If no other members, delete the household
+            await Household.findByIdAndDelete(household._id)
+          }
+        } else {
+          await household.save()
+        }
+      }
+    }
+
+    // Delete any invitations sent by this user
+    const Invitation = require("../models/invitation")
+    await Invitation.deleteMany({ invitedBy: userId })
+
+    // Delete any pending invitations for this user's email
+    await Invitation.deleteMany({ email: user.email.toLowerCase() })
+
+    // Delete the user
+    await User.findByIdAndDelete(userId)
+
+    res.json({ 
+      success: true, 
+      message: "Account deleted successfully" 
+    })
+  } catch (error) {
+    console.error("Error deleting user account:", error)
+    res.status(500).json({ success: false, message: "Server error" })
+  }
+}
+
 exports.uploadProfileImage = async (req, res) => {
   try {
     if (!req.file) {
