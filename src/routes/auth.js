@@ -286,6 +286,162 @@ router.post("/apple/callback", async (req, res) => {
   }
 })
 
+// Facebook OAuth
+router.get("/facebook", (req, res) => {
+  const facebookAuthUrl = "https://www.facebook.com/v18.0/dialog/oauth"
+  const clientId = process.env.FACEBOOK_APP_ID
+  const redirectUri = `${process.env.APP_URL}/auth/facebook/callback`
+
+  console.log("=== Facebook OAuth Debug ===")
+  console.log("APP_URL:", process.env.APP_URL)
+  console.log("FACEBOOK_APP_ID:", clientId)
+  console.log("Redirect URI being sent to Facebook:", redirectUri)
+  console.log("===========================")
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "email,public_profile",
+    state: crypto.randomBytes(16).toString("hex"), // CSRF protection
+  })
+
+  res.redirect(`${facebookAuthUrl}?${params}`)
+})
+
+// Facebook OAuth callback
+router.get("/facebook/callback", async (req, res) => {
+  try {
+    const { code, error } = req.query
+
+    console.log("=== Facebook OAuth Callback Debug ===")
+    console.log("Received code:", code ? "YES" : "NO")
+    console.log("Error:", error)
+    console.log("APP_URL:", process.env.APP_URL)
+    console.log("=====================================")
+
+    if (error) {
+      console.error("Facebook auth error:", error)
+      return res.redirect(
+        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+          error
+        )}`
+      )
+    }
+
+    // Exchange code for access token
+    const tokenParams = new URLSearchParams({
+      client_id: process.env.FACEBOOK_APP_ID,
+      client_secret: process.env.FACEBOOK_APP_SECRET,
+      code,
+      redirect_uri: `${process.env.APP_URL}/auth/facebook/callback`,
+    })
+
+    const tokenResponse = await fetch(
+      `https://graph.facebook.com/v18.0/oauth/access_token?${tokenParams}`,
+      {
+        method: "GET",
+      }
+    )
+
+    const tokenData = await tokenResponse.json()
+    console.log("Token response:", tokenData)
+
+    if (tokenData.error) {
+      console.error("Token exchange error:", tokenData)
+      return res.redirect(
+        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+          tokenData.error.message || "Token exchange failed"
+        )}`
+      )
+    }
+
+    const { access_token } = tokenData
+
+    // Get user info from Facebook
+    const userResponse = await fetch(
+      `https://graph.facebook.com/v18.0/me?fields=id,name,email,picture&access_token=${access_token}`
+    )
+
+    const facebookUser = await userResponse.json()
+    console.log("Facebook user:", facebookUser)
+
+    if (!facebookUser.email) {
+      return res.redirect(
+        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+          "Email permission is required"
+        )}`
+      )
+    }
+
+    // Find or create user in your database
+    let dbUser = await User.findOne({ email: facebookUser.email })
+
+    if (!dbUser) {
+      dbUser = new User({
+        email: facebookUser.email,
+        name: facebookUser.name,
+        profilePicture: facebookUser.picture?.data?.url,
+        facebookId: facebookUser.id,
+        isEmailVerified: true, // Facebook emails are verified
+      })
+      await dbUser.save()
+    } else {
+      // Update user info if needed
+      dbUser.facebookId = facebookUser.id
+      if (facebookUser.picture?.data?.url) {
+        dbUser.profilePicture = facebookUser.picture.data.url
+      }
+      dbUser.isEmailVerified = true
+      await dbUser.save()
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: dbUser._id, email: dbUser.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    )
+
+    // Redirect to your app with the token
+    const isWeb =
+      req.get("User-Agent")?.includes("Mozilla") || req.query.platform === "web"
+
+    let redirectUrl
+    if (isWeb) {
+      // For web browsers, redirect to React app callback route
+      redirectUrl = `http://localhost:8081/AuthCallback?provider=facebook&token=${token}&user=${encodeURIComponent(
+        JSON.stringify({
+          _id: dbUser._id,
+          email: dbUser.email,
+          name: dbUser.name,
+          profilePicture: dbUser.profilePicture,
+        })
+      )}`
+    } else {
+      // For mobile apps, use deep link
+      redirectUrl = `exp://127.0.0.1:8081/--/auth/callback?provider=facebook&token=${token}&user=${encodeURIComponent(
+        JSON.stringify({
+          _id: dbUser._id,
+          email: dbUser.email,
+          name: dbUser.name,
+          profilePicture: dbUser.profilePicture,
+        })
+      )}`
+    }
+
+    console.log("Redirecting to:", redirectUrl)
+    res.redirect(redirectUrl)
+  } catch (error) {
+    console.error("Facebook auth error:", error)
+    res.redirect(
+      `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+        "Kirjautuminen epäonnistui"
+      )}`
+    )
+  }
+})
+
 // Social auth endpoint for mobile app
 router.post("/social", async (req, res) => {
   try {
