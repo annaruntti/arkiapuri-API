@@ -11,12 +11,6 @@ router.get("/google", (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const redirectUri = `${process.env.APP_URL}/auth/google/callback`
 
-  console.log("=== Google OAuth Debug ===")
-  console.log("APP_URL:", process.env.APP_URL)
-  console.log("GOOGLE_CLIENT_ID:", clientId)
-  console.log("Redirect URI being sent to Google:", redirectUri)
-  console.log("========================")
-
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -33,15 +27,6 @@ router.get("/google", (req, res) => {
 router.get("/google/callback", async (req, res) => {
   try {
     const { code } = req.query
-
-    console.log("=== Google OAuth Callback Debug ===")
-    console.log("Received code:", code ? "YES" : "NO")
-    console.log("APP_URL:", process.env.APP_URL)
-    console.log(
-      "Redirect URI for token exchange:",
-      `${process.env.APP_URL}/auth/google/callback`
-    )
-    console.log("==================================")
 
     // Exchange code for access token
     const tokenParams = new URLSearchParams({
@@ -61,7 +46,6 @@ router.get("/google/callback", async (req, res) => {
     })
 
     const tokenData = await tokenResponse.json()
-    console.log("Token response:", tokenData)
 
     if (tokenData.error) {
       console.error("Token exchange error:", tokenData)
@@ -292,17 +276,11 @@ router.get("/facebook", (req, res) => {
   const clientId = process.env.FACEBOOK_APP_ID
   const redirectUri = `${process.env.APP_URL}/auth/facebook/callback`
 
-  console.log("=== Facebook OAuth Debug ===")
-  console.log("APP_URL:", process.env.APP_URL)
-  console.log("FACEBOOK_APP_ID:", clientId)
-  console.log("Redirect URI being sent to Facebook:", redirectUri)
-  console.log("===========================")
-
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "email,public_profile",
+    scope: "public_profile", // Temporarily removed email until approved in Facebook App Review
     state: crypto.randomBytes(16).toString("hex"), // CSRF protection
   })
 
@@ -313,12 +291,6 @@ router.get("/facebook", (req, res) => {
 router.get("/facebook/callback", async (req, res) => {
   try {
     const { code, error } = req.query
-
-    console.log("=== Facebook OAuth Callback Debug ===")
-    console.log("Received code:", code ? "YES" : "NO")
-    console.log("Error:", error)
-    console.log("APP_URL:", process.env.APP_URL)
-    console.log("=====================================")
 
     if (error) {
       console.error("Facebook auth error:", error)
@@ -345,7 +317,6 @@ router.get("/facebook/callback", async (req, res) => {
     )
 
     const tokenData = await tokenResponse.json()
-    console.log("Token response:", tokenData)
 
     if (tokenData.error) {
       console.error("Token exchange error:", tokenData)
@@ -364,35 +335,35 @@ router.get("/facebook/callback", async (req, res) => {
     )
 
     const facebookUser = await userResponse.json()
-    console.log("Facebook user:", facebookUser)
 
-    if (!facebookUser.email) {
-      return res.redirect(
-        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
-          "Email permission is required"
-        )}`
-      )
-    }
+    // Use Facebook ID as email if email not available (for development mode)
+    const userEmail = facebookUser.email || `${facebookUser.id}@facebook.user`
 
     // Find or create user in your database
-    let dbUser = await User.findOne({ email: facebookUser.email })
+    let dbUser = await User.findOne({
+      $or: [{ email: userEmail }, { facebookId: facebookUser.id }],
+    })
 
     if (!dbUser) {
       dbUser = new User({
-        email: facebookUser.email,
+        email: userEmail,
         name: facebookUser.name,
         profilePicture: facebookUser.picture?.data?.url,
         facebookId: facebookUser.id,
-        isEmailVerified: true, // Facebook emails are verified
+        isEmailVerified: !!facebookUser.email, // Only verified if we got real email
       })
       await dbUser.save()
     } else {
       // Update user info if needed
       dbUser.facebookId = facebookUser.id
+      if (facebookUser.email && dbUser.email.includes("@facebook.user")) {
+        // Update to real email if we get it later
+        dbUser.email = facebookUser.email
+        dbUser.isEmailVerified = true
+      }
       if (facebookUser.picture?.data?.url) {
         dbUser.profilePicture = facebookUser.picture.data.url
       }
-      dbUser.isEmailVerified = true
       await dbUser.save()
     }
 
