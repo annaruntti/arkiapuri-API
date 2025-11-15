@@ -149,6 +149,143 @@ router.get("/google/callback", async (req, res) => {
   }
 })
 
+// Apple OAuth
+router.get("/apple", (req, res) => {
+  const appleAuthUrl = "https://appleid.apple.com/auth/authorize"
+  const clientId = process.env.APPLE_CLIENT_ID || process.env.APPLE_SERVICE_ID
+  const redirectUri = `${process.env.APP_URL}/auth/apple/callback`
+
+  console.log("=== Apple OAuth Debug ===")
+  console.log("APP_URL:", process.env.APP_URL)
+  console.log("APPLE_CLIENT_ID:", clientId)
+  console.log("Redirect URI being sent to Apple:", redirectUri)
+  console.log("========================")
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "name email",
+    response_mode: "form_post",
+  })
+
+  res.redirect(`${appleAuthUrl}?${params}`)
+})
+
+// Apple OAuth callback
+router.post("/apple/callback", async (req, res) => {
+  try {
+    const { code, user } = req.body
+
+    console.log("=== Apple OAuth Callback Debug ===")
+    console.log("Received code:", code ? "YES" : "NO")
+    console.log("Received user data:", user ? "YES" : "NO")
+    console.log("APP_URL:", process.env.APP_URL)
+    console.log("==================================")
+
+    // Exchange code for access token
+    const tokenParams = new URLSearchParams({
+      client_id: process.env.APPLE_CLIENT_ID || process.env.APPLE_SERVICE_ID,
+      client_secret: process.env.APPLE_CLIENT_SECRET,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: `${process.env.APP_URL}/auth/apple/callback`,
+    })
+
+    const tokenResponse = await fetch("https://appleid.apple.com/auth/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: tokenParams,
+    })
+
+    const tokenData = await tokenResponse.json()
+    console.log("Token response:", tokenData)
+
+    if (tokenData.error) {
+      console.error("Token exchange error:", tokenData)
+      return res.redirect(
+        `http://localhost:8081/AuthCallback?provider=apple&error=${encodeURIComponent(
+          tokenData.error_description || "Token exchange failed"
+        )}`
+      )
+    }
+
+    const { id_token } = tokenData
+
+    // Decode the ID token to get user info
+    const base64Payload = id_token.split(".")[1]
+    const payload = Buffer.from(base64Payload, "base64").toString()
+    const appleUser = JSON.parse(payload)
+
+    console.log("Apple user from token:", appleUser)
+
+    // Parse user data from the initial request if available
+    let userName = null
+    if (user) {
+      try {
+        const userData = typeof user === "string" ? JSON.parse(user) : user
+        if (userData.name) {
+          userName = `${userData.name.firstName || ""} ${
+            userData.name.lastName || ""
+          }`.trim()
+        }
+      } catch (e) {
+        console.error("Error parsing user data:", e)
+      }
+    }
+
+    // Find or create user in your database
+    let dbUser = await User.findOne({ email: appleUser.email })
+
+    if (!dbUser) {
+      dbUser = new User({
+        email: appleUser.email,
+        name: userName || appleUser.email.split("@")[0], // Use email prefix if no name
+        appleId: appleUser.sub,
+        isEmailVerified: true, // Apple emails are verified
+      })
+      await dbUser.save()
+    } else {
+      // Update user info if needed
+      dbUser.appleId = appleUser.sub
+      if (userName && !dbUser.name) {
+        dbUser.name = userName
+      }
+      dbUser.isEmailVerified = true
+      await dbUser.save()
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: dbUser._id, email: dbUser.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    )
+
+    // Redirect to your app with the token (always web for Apple)
+    const redirectUrl = `http://localhost:8081/AuthCallback?provider=apple&token=${token}&user=${encodeURIComponent(
+      JSON.stringify({
+        _id: dbUser._id,
+        email: dbUser.email,
+        name: dbUser.name,
+        profilePicture: dbUser.profilePicture,
+      })
+    )}`
+
+    console.log("Redirecting to:", redirectUrl)
+    res.redirect(redirectUrl)
+  } catch (error) {
+    console.error("Apple auth error:", error)
+    res.redirect(
+      `http://localhost:8081/AuthCallback?provider=apple&error=${encodeURIComponent(
+        "Kirjautuminen epäonnistui"
+      )}`
+    )
+  }
+})
+
 // Social auth endpoint for mobile app
 router.post("/social", async (req, res) => {
   try {
