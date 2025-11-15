@@ -11,6 +11,12 @@ router.get("/google", (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const redirectUri = `${process.env.APP_URL}/auth/google/callback`
 
+  console.log("=== Google OAuth Debug ===")
+  console.log("APP_URL:", process.env.APP_URL)
+  console.log("GOOGLE_CLIENT_ID:", clientId)
+  console.log("Redirect URI being sent to Google:", redirectUri)
+  console.log("========================")
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -27,6 +33,15 @@ router.get("/google", (req, res) => {
 router.get("/google/callback", async (req, res) => {
   try {
     const { code } = req.query
+
+    console.log("=== Google OAuth Callback Debug ===")
+    console.log("Received code:", code ? "YES" : "NO")
+    console.log("APP_URL:", process.env.APP_URL)
+    console.log(
+      "Redirect URI for token exchange:",
+      `${process.env.APP_URL}/auth/google/callback`
+    )
+    console.log("==================================")
 
     // Exchange code for access token
     const tokenParams = new URLSearchParams({
@@ -46,6 +61,16 @@ router.get("/google/callback", async (req, res) => {
     })
 
     const tokenData = await tokenResponse.json()
+    console.log("Token response:", tokenData)
+
+    if (tokenData.error) {
+      console.error("Token exchange error:", tokenData)
+      const errorUrl = `exp://127.0.0.1:8081/--/auth/callback?error=${encodeURIComponent(
+        tokenData.error_description || "Token exchange failed"
+      )}`
+      return res.redirect(errorUrl)
+    }
+
     const { access_token } = tokenData
 
     // Get user info from Google
@@ -86,15 +111,34 @@ router.get("/google/callback", async (req, res) => {
     )
 
     // Redirect to your app with the token
-    const redirectUrl = `exp://127.0.0.1:8081/--/auth/callback?token=${token}&user=${encodeURIComponent(
-      JSON.stringify({
-        _id: user._id,
-        email: user.email,
-        name: user.name,
-        profilePicture: user.profilePicture,
-      })
-    )}`
+    // For web: redirect to HTTP URL with callback page, for mobile: use deep link
+    const isWeb =
+      req.get("User-Agent")?.includes("Mozilla") || req.query.platform === "web"
 
+    let redirectUrl
+    if (isWeb) {
+      // For web browsers, redirect to React app callback route
+      redirectUrl = `http://localhost:8081/AuthCallback?token=${token}&user=${encodeURIComponent(
+        JSON.stringify({
+          _id: user._id,
+          email: user.email,
+          name: user.name,
+          profilePicture: user.profilePicture,
+        })
+      )}`
+    } else {
+      // For mobile apps, use deep link
+      redirectUrl = `exp://127.0.0.1:8081/--/auth/callback?token=${token}&user=${encodeURIComponent(
+        JSON.stringify({
+          _id: user._id,
+          email: user.email,
+          name: user.name,
+          profilePicture: user.profilePicture,
+        })
+      )}`
+    }
+
+    console.log("Redirecting to:", redirectUrl)
     res.redirect(redirectUrl)
   } catch (error) {
     console.error("Google auth error:", error)
