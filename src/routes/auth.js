@@ -9,6 +9,10 @@ const router = express.Router()
 router.get("/google", (req, res) => {
   const googleAuthUrl = "https://accounts.google.com/o/oauth2/v2/auth"
   const clientId = process.env.GOOGLE_CLIENT_ID
+
+  // For mobile, we need to use a redirect that Google will accept
+  // Mobile apps will pass platform=mobile, but OAuth must complete on web first
+  const isMobile = req.query.platform === "mobile"
   const redirectUri = `${process.env.APP_URL}/auth/google/callback`
 
   const params = new URLSearchParams({
@@ -20,13 +24,20 @@ router.get("/google", (req, res) => {
     prompt: "select_account",
   })
 
+  // Store that this is a mobile request so callback can handle it differently
+  if (isMobile) {
+    // We'll use state parameter to track mobile requests
+    params.set("state", "mobile")
+  }
+
   res.redirect(`${googleAuthUrl}?${params}`)
 })
 
 // Google OAuth callback
 router.get("/google/callback", async (req, res) => {
   try {
-    const { code } = req.query
+    const { code, state } = req.query
+    const isMobileRequest = state === "mobile"
 
     // Exchange code for access token
     const tokenParams = new URLSearchParams({
@@ -49,9 +60,13 @@ router.get("/google/callback", async (req, res) => {
 
     if (tokenData.error) {
       console.error("Token exchange error:", tokenData)
-      const errorUrl = `exp://127.0.0.1:8081/--/auth/callback?error=${encodeURIComponent(
-        tokenData.error_description || "Token exchange failed"
-      )}`
+      const errorUrl = isMobileRequest
+        ? `arkiapuri://auth/callback?provider=google&error=${encodeURIComponent(
+            tokenData.error_description || "Token exchange failed"
+          )}`
+        : `http://localhost:8081/AuthCallback?provider=google&error=${encodeURIComponent(
+            tokenData.error_description || "Token exchange failed"
+          )}`
       return res.redirect(errorUrl)
     }
 
@@ -95,32 +110,24 @@ router.get("/google/callback", async (req, res) => {
     )
 
     // Redirect to your app with the token
-    // For web: redirect to HTTP URL with callback page, for mobile: use deep link
-    const isWeb =
-      req.get("User-Agent")?.includes("Mozilla") || req.query.platform === "web"
-
-    let redirectUrl
-    if (isWeb) {
-      // For web browsers, redirect to React app callback route
-      redirectUrl = `http://localhost:8081/AuthCallback?token=${token}&user=${encodeURIComponent(
-        JSON.stringify({
-          _id: user._id,
-          email: user.email,
-          name: user.name,
-          profilePicture: user.profilePicture,
-        })
-      )}`
-    } else {
-      // For mobile apps, use deep link
-      redirectUrl = `exp://127.0.0.1:8081/--/auth/callback?token=${token}&user=${encodeURIComponent(
-        JSON.stringify({
-          _id: user._id,
-          email: user.email,
-          name: user.name,
-          profilePicture: user.profilePicture,
-        })
-      )}`
-    }
+    // Use state parameter to determine if this was a mobile request
+    const redirectUrl = isMobileRequest
+      ? `arkiapuri://auth/callback?provider=google&token=${token}&user=${encodeURIComponent(
+          JSON.stringify({
+            _id: user._id,
+            email: user.email,
+            name: user.name,
+            profilePicture: user.profilePicture,
+          })
+        )}`
+      : `http://localhost:8081/AuthCallback?provider=google&token=${token}&user=${encodeURIComponent(
+          JSON.stringify({
+            _id: user._id,
+            email: user.email,
+            name: user.name,
+            profilePicture: user.profilePicture,
+          })
+        )}`
 
     console.log("Redirecting to:", redirectUrl)
     res.redirect(redirectUrl)
@@ -276,12 +283,14 @@ router.get("/facebook", (req, res) => {
   const clientId = process.env.FACEBOOK_APP_ID
   const redirectUri = `${process.env.APP_URL}/auth/facebook/callback`
 
+  const isMobile = req.query.platform === "mobile"
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: "public_profile", // Temporarily removed email until approved in Facebook App Review
-    state: crypto.randomBytes(16).toString("hex"), // CSRF protection
+    state: isMobile ? "mobile" : crypto.randomBytes(16).toString("hex"), // CSRF protection
   })
 
   res.redirect(`${facebookAuthUrl}?${params}`)
@@ -290,15 +299,19 @@ router.get("/facebook", (req, res) => {
 // Facebook OAuth callback
 router.get("/facebook/callback", async (req, res) => {
   try {
-    const { code, error } = req.query
+    const { code, error, state } = req.query
+    const isMobileRequest = state === "mobile"
 
     if (error) {
       console.error("Facebook auth error:", error)
-      return res.redirect(
-        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
-          error
-        )}`
-      )
+      const errorUrl = isMobileRequest
+        ? `arkiapuri://auth/callback?provider=facebook&error=${encodeURIComponent(
+            error
+          )}`
+        : `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+            error
+          )}`
+      return res.redirect(errorUrl)
     }
 
     // Exchange code for access token
@@ -320,11 +333,14 @@ router.get("/facebook/callback", async (req, res) => {
 
     if (tokenData.error) {
       console.error("Token exchange error:", tokenData)
-      return res.redirect(
-        `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
-          tokenData.error.message || "Token exchange failed"
-        )}`
-      )
+      const errorUrl = isMobileRequest
+        ? `arkiapuri://auth/callback?provider=facebook&error=${encodeURIComponent(
+            tokenData.error.message || "Token exchange failed"
+          )}`
+        : `http://localhost:8081/AuthCallback?provider=facebook&error=${encodeURIComponent(
+            tokenData.error.message || "Token exchange failed"
+          )}`
+      return res.redirect(errorUrl)
     }
 
     const { access_token } = tokenData
@@ -375,31 +391,23 @@ router.get("/facebook/callback", async (req, res) => {
     )
 
     // Redirect to your app with the token
-    const isWeb =
-      req.get("User-Agent")?.includes("Mozilla") || req.query.platform === "web"
-
-    let redirectUrl
-    if (isWeb) {
-      // For web browsers, redirect to React app callback route
-      redirectUrl = `http://localhost:8081/AuthCallback?provider=facebook&token=${token}&user=${encodeURIComponent(
-        JSON.stringify({
-          _id: dbUser._id,
-          email: dbUser.email,
-          name: dbUser.name,
-          profilePicture: dbUser.profilePicture,
-        })
-      )}`
-    } else {
-      // For mobile apps, use deep link
-      redirectUrl = `exp://127.0.0.1:8081/--/auth/callback?provider=facebook&token=${token}&user=${encodeURIComponent(
-        JSON.stringify({
-          _id: dbUser._id,
-          email: dbUser.email,
-          name: dbUser.name,
-          profilePicture: dbUser.profilePicture,
-        })
-      )}`
-    }
+    const redirectUrl = isMobileRequest
+      ? `arkiapuri://auth/callback?provider=facebook&token=${token}&user=${encodeURIComponent(
+          JSON.stringify({
+            _id: dbUser._id,
+            email: dbUser.email,
+            name: dbUser.name,
+            profilePicture: dbUser.profilePicture,
+          })
+        )}`
+      : `http://localhost:8081/AuthCallback?provider=facebook&token=${token}&user=${encodeURIComponent(
+          JSON.stringify({
+            _id: dbUser._id,
+            email: dbUser.email,
+            name: dbUser.name,
+            profilePicture: dbUser.profilePicture,
+          })
+        )}`
 
     console.log("Redirecting to:", redirectUrl)
     res.redirect(redirectUrl)
