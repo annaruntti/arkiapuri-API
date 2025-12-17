@@ -14,7 +14,7 @@
   "dependencies": {
     "@google-cloud/vision": "^4.3.3",
     "bcrypt": "^5.0.1",
-    "cloudinary": "^1.25.1",
+    "cloudinary": "^2.8.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
     "dotenv": "^8.6.0",
@@ -23,7 +23,7 @@
     "express-validator": "^6.10.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^3.6.6",
+    "mongodb": "^3.7.4",
     "mongoose": "^8.17.0",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.6",

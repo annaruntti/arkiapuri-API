@@ -15,28 +15,71 @@ This is API for Arkiapuri mobile app. You will find mobile app project from here
 
 ### Required Variables
 
+These variables are **required** for the application to start:
+
 #### Core Configuration
-- `NODE_ENV` - Environment (development/production)
-- `PORT` - Server port (default: 3000)
-- `MONGODB_URI` - MongoDB connection string
-- `JWT_SECRET` - Secret key for JWT tokens
+```env
+NODE_ENV=development
+PORT=3000
+APP_URL=http://localhost:3000
+CORS_ORIGIN=http://localhost:8081
+```
 
-#### Cloudinary (Image Uploads)
-- `CLOUDINARY_USER_NAME` - Cloudinary username
-- `CLOUDINARY_API_KEY` - Cloudinary API key
-- `CLOUDINARY_API_KEY_SECRET` - Cloudinary API secret
+#### Database
+```env
+MONGODB_URI=mongodb://localhost:27017/arkiapuri
+# Or for MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/arkiapuri?retryWrites=true&w=majority
+```
 
-#### Email Service (Family Invitations)
-- `EMAIL_SERVICE` - Email service provider (e.g., 'gmail', 'sendgrid', 'mailgun')
-- `EMAIL_USER` - Email username/address
-- `EMAIL_PASSWORD` - Email password or API key
-- `EMAIL_FROM_ADDRESS` - Sender email address (e.g., noreply@arkiapuri.fi)
-- `FRONTEND_URL` - Mobile app deep link scheme (e.g., arkiapuri://)
-- `WEB_URL` - Web app URL for email links (e.g., http://localhost:8081 or https://yourdomain.com)
+#### Authentication
+```env
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+```
 
-#### Optional
-- `CORS_ORIGIN` - Allowed CORS origins
-- `GOOGLE_APPLICATION_CREDENTIALS` - Path to Google Vision API credentials
+#### Cloudinary (Image Uploads) - REQUIRED
+```env
+CLOUDINARY_USER_NAME=your-cloudinary-username
+CLOUDINARY_API_KEY=your-cloudinary-api-key
+CLOUDINARY_API_KEY_SECRET=your-cloudinary-api-secret
+```
+
+### Optional but Recommended Variables
+
+#### Email Service (for Family Invitations)
+```env
+EMAIL_SERVICE=gmail
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-specific-password-or-api-key
+EMAIL_FROM_ADDRESS=your-email@gmail.com
+FRONTEND_URL=arkiapuri://
+WEB_URL=http://localhost:8081
+```
+
+**Note:** The password reset functionality also accepts:
+- `EMAIL_PASS` (alternative to `EMAIL_PASSWORD`)
+- `EMAIL_FROM` (alternative to `EMAIL_FROM_ADDRESS`)
+
+#### OAuth (for Social Login) - Optional
+```env
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+APPLE_CLIENT_ID=your-apple-client-id
+APPLE_SERVICE_ID=your-apple-service-id
+APPLE_CLIENT_SECRET=your-apple-client-secret
+FACEBOOK_APP_ID=your-facebook-app-id
+FACEBOOK_APP_SECRET=your-facebook-app-secret
+```
+
+#### Google Vision API (for image recognition) - Optional
+```env
+GOOGLE_APPLICATION_CREDENTIALS=./path/to/google-credentials.json
+```
+
+#### Error Tracking (for production) - Optional
+```env
+SENTRY_DSN=your-sentry-dsn-url
+```
 
 ### Email Service Setup
 
@@ -44,7 +87,7 @@ This is API for Arkiapuri mobile app. You will find mobile app project from here
 1. Enable 2-Factor Authentication on your Gmail account
 2. Generate an App Password: https://myaccount.google.com/apppasswords
 3. Set environment variables:
-   ```
+   ```env
    EMAIL_SERVICE=gmail
    EMAIL_USER=your-email@gmail.com
    EMAIL_PASSWORD=your-app-specific-password
@@ -55,21 +98,75 @@ This is API for Arkiapuri mobile app. You will find mobile app project from here
 1. Sign up for SendGrid account
 2. Create an API key
 3. Set environment variables:
-   ```
+   ```env
    EMAIL_SERVICE=sendgrid
    EMAIL_USER=apikey
    EMAIL_PASSWORD=your-sendgrid-api-key
    EMAIL_FROM_ADDRESS=noreply@yourdomain.com
    ```
-   Note: Verify your sender email in SendGrid dashboard
+   **Note:** Verify your sender email in SendGrid dashboard
 
 #### For Development/Testing
 Use Mailtrap (https://mailtrap.io) to test emails without sending real ones:
-```
+```env
 EMAIL_SERVICE=smtp
 EMAIL_USER=your-mailtrap-username
 EMAIL_PASSWORD=your-mailtrap-password
 ```
+
+### Complete .env Template
+
+Here's a complete template for your `.env` file:
+
+```env
+# ============================================
+# ARKIAPURI API - Environment Variables
+# ============================================
+
+# Core Configuration
+NODE_ENV=development
+PORT=3000
+APP_URL=http://localhost:3000
+CORS_ORIGIN=http://localhost:8081
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/arkiapuri
+# Or for MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/arkiapuri?retryWrites=true&w=majority
+
+# Authentication
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# Cloudinary (Image Uploads) - REQUIRED
+CLOUDINARY_USER_NAME=your-cloudinary-username
+CLOUDINARY_API_KEY=your-cloudinary-api-key
+CLOUDINARY_API_KEY_SECRET=your-cloudinary-api-secret
+
+# Email Service (Family Invitations)
+EMAIL_SERVICE=gmail
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-specific-password-or-api-key
+EMAIL_FROM_ADDRESS=your-email@gmail.com
+FRONTEND_URL=arkiapuri://
+WEB_URL=http://localhost:8081
+
+# OAuth (Optional - for social login)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+APPLE_CLIENT_ID=your-apple-client-id
+APPLE_SERVICE_ID=your-apple-service-id
+APPLE_CLIENT_SECRET=your-apple-client-secret
+FACEBOOK_APP_ID=your-facebook-app-id
+FACEBOOK_APP_SECRET=your-facebook-app-secret
+
+# Google Vision API (Optional)
+GOOGLE_APPLICATION_CREDENTIALS=./path/to/google-credentials.json
+
+# Error Tracking (Optional - for production)
+SENTRY_DSN=your-sentry-dsn-url
+```
+
+**Important:** Make sure to replace all placeholder values with your actual credentials. The minimum required variables are: `MONGODB_URI`, `JWT_SECRET`, `CORS_ORIGIN`, and all `CLOUDINARY_*` variables.
 
 ## API Endpoints
 
@@ -117,12 +214,15 @@ For complete API documentation, see the Swagger docs at `/api-docs`
 1. First clone or download this project
 2. Use node version 18
 3. Install dependencies: `npm install`
-4. Create `.env` file with required variables:
-   - `MONGO_URI`
-   - `JWT_SECRET`
-   - `CLOUDINARY_USER_NAME`
-   - `CLOUDINARY_API_KEY`
-   - `CLOUDINARY_API_KEY_SECRET`
+4. Create `.env` file with required variables (see [Environment Variables](#environment-variables) section above):
+   - `MONGODB_URI` - MongoDB connection string
+   - `JWT_SECRET` - Secret key for JWT tokens
+   - `CORS_ORIGIN` - Allowed CORS origins
+   - `CLOUDINARY_USER_NAME` - Cloudinary username
+   - `CLOUDINARY_API_KEY` - Cloudinary API key
+   - `CLOUDINARY_API_KEY_SECRET` - Cloudinary API secret
+   
+   **Quick Setup:** Copy `.env.example` to `.env` and update with your actual credentials.
 5. Run the server:
    - `npm run dev` for development with nodemon
    - `npm start` for production mode
