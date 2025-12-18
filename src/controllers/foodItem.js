@@ -444,6 +444,301 @@ exports.uploadFoodItemImage = async (req, res) => {
   }
 }
 
+// Find or create food item with name matching (fuzzy matching)
+exports.findOrCreateFoodItem = async (req, res) => {
+  try {
+    const { name, category, unit, price, calories, location, quantities } =
+      req.body
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Food item name is required",
+      })
+    }
+
+    // Normalize name for comparison (lowercase, trim, remove extra spaces)
+    const normalizeName = (str) =>
+      str
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/[^\w\s]/g, "")
+
+    const normalizedSearchName = normalizeName(name)
+
+    // First try exact match (case-insensitive)
+    let existingFoodItem = await FoodItem.findOne({
+      user: req.user._id,
+      $expr: {
+        $eq: [
+          { $toLower: { $trim: { input: "$name" } } },
+          normalizedSearchName,
+        ],
+      },
+    })
+
+    // If no exact match, try fuzzy matching (similar names)
+    if (!existingFoodItem) {
+      const allFoodItems = await FoodItem.find({ user: req.user._id })
+      const threshold = 0.8 // 80% similarity threshold
+
+      // Simple Levenshtein-like similarity check
+      const calculateSimilarity = (str1, str2) => {
+        const longer = str1.length > str2.length ? str1 : str2
+        const shorter = str1.length > str2.length ? str2 : str1
+        if (longer.length === 0) return 1.0
+
+        // Check if one string contains the other
+        if (longer.includes(shorter)) return 0.9
+
+        // Simple character-based similarity
+        let matches = 0
+        for (let i = 0; i < shorter.length; i++) {
+          if (longer.includes(shorter[i])) matches++
+        }
+        return matches / longer.length
+      }
+
+      for (const item of allFoodItems) {
+        const normalizedItemName = normalizeName(item.name)
+        const similarity = calculateSimilarity(
+          normalizedSearchName,
+          normalizedItemName
+        )
+
+        if (similarity >= threshold) {
+          existingFoodItem = item
+          break
+        }
+      }
+    }
+
+    // If found existing item, update it and return
+    if (existingFoodItem) {
+      // Update quantities if provided
+      if (quantities) {
+        Object.keys(quantities).forEach((loc) => {
+          if (["meal", "shopping-list", "pantry"].includes(loc)) {
+            existingFoodItem.quantities[loc] =
+              (existingFoodItem.quantities[loc] || 0) +
+              (parseFloat(quantities[loc]) || 0)
+          }
+        })
+      }
+
+      // Update other fields if provided (merge, don't overwrite)
+      if (category && Array.isArray(category)) {
+        existingFoodItem.category = [
+          ...new Set([...existingFoodItem.category, ...category]),
+        ]
+      }
+      if (unit) existingFoodItem.unit = unit
+      if (price !== undefined && price > 0) {
+        existingFoodItem.price =
+          existingFoodItem.price && existingFoodItem.price > 0
+            ? (existingFoodItem.price + price) / 2
+            : price
+      }
+      if (calories !== undefined && calories > 0) {
+        existingFoodItem.calories =
+          existingFoodItem.calories && existingFoodItem.calories > 0
+            ? (existingFoodItem.calories + calories) / 2
+            : calories
+      }
+
+      // Update locations
+      if (location && !existingFoodItem.locations.includes(location)) {
+        existingFoodItem.locations.push(location)
+      }
+
+      await existingFoodItem.save()
+
+      return res.json({
+        success: true,
+        foodItem: existingFoodItem,
+        isExisting: true,
+        message: "Found existing food item and updated",
+      })
+    }
+
+    // Create new food item if not found
+    const foodItem = new FoodItem({
+      name,
+      category: category || [],
+      unit: unit || "kpl",
+      price: price || 0,
+      calories: calories || 0,
+      user: req.user._id,
+      locations: location ? [location] : ["meal"],
+      quantities: quantities || {
+        meal: location === "meal" ? 1 : 0,
+        "shopping-list": location === "shopping-list" ? 1 : 0,
+        pantry: location === "pantry" ? 1 : 0,
+      },
+    })
+
+    await foodItem.save()
+
+    // Add reference to user's foodItems
+    await User.findByIdAndUpdate(req.user._id, {
+      $push: { foodItems: foodItem._id },
+    })
+
+    return res.json({
+      success: true,
+      foodItem,
+      isExisting: false,
+      message: "Created new food item",
+    })
+  } catch (error) {
+    console.error("Error in findOrCreateFoodItem:", error)
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    })
+  }
+}
+
+// Check if food item exists in pantry or shopping list
+exports.checkItemAvailability = async (req, res) => {
+  try {
+    const { name } = req.body
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Food item name is required",
+      })
+    }
+
+    // Normalize name for comparison
+    const normalizeName = (str) =>
+      str
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/[^\w\s]/g, "")
+
+    const normalizedSearchName = normalizeName(name)
+
+    // Find food items with similar names
+    const allFoodItems = await FoodItem.find({ user: req.user._id })
+    const matchingItems = []
+
+    for (const item of allFoodItems) {
+      const normalizedItemName = normalizeName(item.name)
+      // Check exact match or if one contains the other
+      if (
+        normalizedItemName === normalizedSearchName ||
+        normalizedItemName.includes(normalizedSearchName) ||
+        normalizedSearchName.includes(normalizedItemName)
+      ) {
+        matchingItems.push(item)
+      }
+    }
+
+    // Check pantry
+    const Pantry = require("../models/pantry")
+    const pantry = await Pantry.findOne({
+      userId: req.user._id,
+    }).populate("items.foodId")
+
+    let inPantry = false
+    let pantryQuantity = 0
+    if (pantry && pantry.items) {
+      for (const pantryItem of pantry.items) {
+        if (pantryItem.foodId) {
+          const pantryItemName = normalizeName(pantryItem.foodId.name)
+          if (
+            pantryItemName === normalizedSearchName ||
+            pantryItemName.includes(normalizedSearchName) ||
+            normalizedSearchName.includes(pantryItemName)
+          ) {
+            inPantry = true
+            pantryQuantity = pantryItem.quantity || 0
+            break
+          }
+        } else if (pantryItem.name) {
+          const pantryItemName = normalizeName(pantryItem.name)
+          if (
+            pantryItemName === normalizedSearchName ||
+            pantryItemName.includes(normalizedSearchName) ||
+            normalizedSearchName.includes(pantryItemName)
+          ) {
+            inPantry = true
+            pantryQuantity = pantryItem.quantity || 0
+            break
+          }
+        }
+      }
+    }
+
+    // Check shopping lists
+    const ShoppingList = require("../models/shoppingList")
+    const shoppingLists = await ShoppingList.find({
+      userId: req.user._id,
+    }).populate("items.foodId")
+
+    let inShoppingList = false
+    let shoppingListQuantity = 0
+    let shoppingListId = null
+    for (const list of shoppingLists) {
+      if (list.items) {
+        for (const listItem of list.items) {
+          if (listItem.foodId) {
+            const listItemName = normalizeName(listItem.foodId.name)
+            if (
+              listItemName === normalizedSearchName ||
+              listItemName.includes(normalizedSearchName) ||
+              normalizedSearchName.includes(listItemName)
+            ) {
+              inShoppingList = true
+              shoppingListQuantity = listItem.quantity || 0
+              shoppingListId = list._id
+              break
+            }
+          } else if (listItem.name) {
+            const listItemName = normalizeName(listItem.name)
+            if (
+              listItemName === normalizedSearchName ||
+              listItemName.includes(normalizedSearchName) ||
+              normalizedSearchName.includes(listItemName)
+            ) {
+              inShoppingList = true
+              shoppingListQuantity = listItem.quantity || 0
+              shoppingListId = list._id
+              break
+            }
+          }
+        }
+        if (inShoppingList) break
+      }
+    }
+
+    res.json({
+      success: true,
+      inPantry,
+      pantryQuantity,
+      inShoppingList,
+      shoppingListQuantity,
+      shoppingListId,
+      hasMatchingFoodItem: matchingItems.length > 0,
+      matchingFoodItems: matchingItems.map((item) => ({
+        _id: item._id,
+        name: item.name,
+        quantities: item.quantities,
+      })),
+    })
+  } catch (error) {
+    console.error("Error checking item availability:", error)
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    })
+  }
+}
+
 // Remove food item image
 exports.removeFoodItemImage = async (req, res) => {
   try {

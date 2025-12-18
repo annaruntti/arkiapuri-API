@@ -10,12 +10,20 @@ const {
   moveItem,
   uploadFoodItemImage,
   removeFoodItemImage,
+  findOrCreateFoodItem,
+  checkItemAvailability,
 } = require("../controllers/foodItem")
 
 const router = express.Router()
 
 // Get all food items
 router.get("/food-items", isAuth, getFoodItems)
+
+// Check if food item exists in pantry or shopping list
+router.post("/food-items/check-availability", isAuth, checkItemAvailability)
+
+// Find or create food item (with name matching)
+router.post("/food-items/find-or-create", isAuth, findOrCreateFoodItem)
 
 // Create new food item
 router.post("/food-items", isAuth, createFoodItem)
