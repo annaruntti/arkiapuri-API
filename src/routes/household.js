@@ -5,7 +5,6 @@ const {
   getHousehold,
   updateHousehold,
   inviteToHousehold,
-  joinHousehold,
   leaveHousehold,
   removeMember,
   updateMemberRole,
@@ -33,9 +32,6 @@ router.get("/household/invitation/:token", getInvitationByToken)
 
 // Accept invitation using token
 router.post("/household/accept-invite", isAuth, acceptInvitation)
-
-// Join household with invitation code (legacy support)
-router.post("/household/join", isAuth, joinHousehold)
 
 // Leave household
 router.post("/household/leave", isAuth, leaveHousehold)

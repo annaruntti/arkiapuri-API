@@ -24,11 +24,6 @@ const invitationSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-    invitationCode: {
-      type: String,
-      // Keep for backward compatibility
-      sparse: true,
-    },
     status: {
       type: String,
       enum: ["pending", "accepted", "declined", "expired"],

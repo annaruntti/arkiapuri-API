@@ -7,17 +7,21 @@ const getTransporter = () => {
   if (transporter) return transporter
 
   // Check if email service is configured
+
   if (
-    !process.env.EMAIL_SERVICE ||
+    !process.env.EMAIL_HOST ||
+    !process.env.EMAIL_PORT ||
     !process.env.EMAIL_USER ||
     !process.env.EMAIL_PASSWORD
   ) {
-    console.warn("Email service not configured. Emails will not be sent.")
+    console.warn("Email SMTP settings not configured. Emails will not be sent.")
     return null
   }
 
   transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE, // e.g., 'gmail', 'sendgrid'
+    host: process.env.EMAIL_HOST,
+    port: parseInt(process.env.EMAIL_PORT, 10),
+    secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for 587
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,

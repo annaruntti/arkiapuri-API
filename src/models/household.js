@@ -30,37 +30,6 @@ const householdSchema = new mongoose.Schema(
         },
       },
     ],
-    invitations: [
-      {
-        email: {
-          type: String,
-          required: true,
-        },
-        invitedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        invitationCode: {
-          type: String,
-          required: true,
-        },
-        status: {
-          type: String,
-          enum: ["pending", "accepted", "rejected", "expired"],
-          default: "pending",
-        },
-        createdAt: {
-          type: Date,
-          default: Date.now,
-        },
-        expiresAt: {
-          type: Date,
-          // Default to 7 days from now
-          default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
-      },
-    ],
     settings: {
       allowMemberInvites: {
         type: Boolean,
@@ -94,20 +63,22 @@ const householdSchema = new mongoose.Schema(
 // Method to check if a user is a member of this household
 householdSchema.methods.isMember = function (userId) {
   return this.members.some((member) => {
+    if (!member.userId) return false;
     // Handle both populated and unpopulated userId
-    const memberId = member.userId._id || member.userId
-    return memberId.toString() === userId.toString()
-  })
+    const memberId = member.userId._id || member.userId;
+    return memberId && memberId.toString() === userId.toString();
+  });
 }
 
 // Method to get user's role in household
 householdSchema.methods.getUserRole = function (userId) {
   const member = this.members.find((m) => {
+    if (!m.userId) return false;
     // Handle both populated and unpopulated userId
-    const memberId = m.userId._id || m.userId
-    return memberId.toString() === userId.toString()
-  })
-  return member ? member.role : null
+    const memberId = m.userId._id || m.userId;
+    return memberId && memberId.toString() === userId.toString();
+  });
+  return member ? member.role : null;
 }
 
 // Method to check if user can invite others

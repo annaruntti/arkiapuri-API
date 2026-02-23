@@ -133,7 +133,7 @@ exports.deleteFoodItem = async (req, res) => {
   }
 }
 
-// New helper method to move items between locations
+// Helper method to move items between locations
 exports.moveFoodItem = async (req, res) => {
   try {
     const { id } = req.params
@@ -527,7 +527,7 @@ exports.findOrCreateFoodItem = async (req, res) => {
         })
       }
 
-      // Update other fields if provided (merge, don't overwrite)
+      // Update other fields if provided
       if (category && Array.isArray(category)) {
         existingFoodItem.category = [
           ...new Set([...existingFoodItem.category, ...category]),

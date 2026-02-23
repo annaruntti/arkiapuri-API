@@ -190,7 +190,6 @@ SENTRY_DSN=your-sentry-dsn-url
 - POST `/household/invite` - Send email invitation to join household
 - GET `/household/invitation/:token` - Get invitation details (no auth required)
 - POST `/household/accept-invite` - Accept invitation using token
-- POST `/household/join` - Join household with code (legacy support)
 
 ### Household Members
 - POST `/household/leave` - Leave current household
