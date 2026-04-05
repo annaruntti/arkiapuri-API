@@ -5,6 +5,57 @@ const {
   getDataQuery,
 } = require("../helpers/householdHelpers")
 
+// Helper: find (or create) the single canonical pantry for the user/household.
+// If multiple pantry documents exist (e.g. one created before joining a household
+// and one after), they are merged into one and the duplicates are deleted.
+const getCanonicalPantry = async (user) => {
+  const query = getDataQuery(user)
+  const allPantries = await Pantry.find(query)
+
+  if (allPantries.length === 0) {
+    const ownership = getDataOwnership(user)
+    const pantry = new Pantry({ ...ownership, items: [] })
+    await pantry.save()
+    return pantry
+  }
+
+  if (allPantries.length === 1) {
+    return allPantries[0]
+  }
+
+  // Multiple pantries – prefer household-linked one, then largest
+  const householdPantry = allPantries.find((p) => p.household)
+  const canonical =
+    householdPantry ||
+    allPantries.reduce((a, b) => (a.items.length >= b.items.length ? a : b))
+  const others = allPantries.filter(
+    (p) => p._id.toString() !== canonical._id.toString()
+  )
+
+  const canonicalNames = new Set(
+    canonical.items.map((i) => i.name.toLowerCase())
+  )
+  const itemsToMerge = []
+  for (const other of others) {
+    for (const item of other.items) {
+      if (!canonicalNames.has(item.name.toLowerCase())) {
+        const raw = item.toObject ? item.toObject() : item
+        delete raw._id // let Mongoose generate a new sub-document id
+        itemsToMerge.push(raw)
+        canonicalNames.add(item.name.toLowerCase())
+      }
+    }
+  }
+
+  if (itemsToMerge.length > 0) {
+    canonical.items.push(...itemsToMerge)
+  }
+  await canonical.save()
+  await Pantry.deleteMany({ _id: { $in: others.map((p) => p._id) } })
+
+  return canonical
+}
+
 // Helper function to validate item data
 const validateItemData = (item) => {
   const errors = []
@@ -31,17 +82,10 @@ const validateItemData = (item) => {
 // Get pantry
 const getPantry = async (req, res) => {
   try {
-    const query = getDataQuery(req.user)
-    let pantry = await Pantry.findOne(query).populate({
-      path: "items.foodId",
-      // Select all fields to ensure image is included
-    })
+    const pantry = await getCanonicalPantry(req.user)
 
-    if (!pantry) {
-      const ownership = getDataOwnership(req.user)
-      pantry = new Pantry({ ...ownership, items: [] })
-      await pantry.save()
-    }
+    // Populate food item references after merge
+    await pantry.populate({ path: "items.foodId" })
 
     // Merge food item data with pantry items
     const processedItems = pantry.items.map((item) => {
@@ -120,10 +164,7 @@ const addFoodItemToPantry = async (req, res) => {
       await foodItem.save()
     }
 
-    let pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      pantry = new Pantry({ userId: req.user._id, items: [] })
-    }
+    let pantry = await getCanonicalPantry(req.user)
 
     const existingItem = pantry.items.find(
       (item) => item.foodId?.toString() === foodItem._id.toString()
@@ -173,7 +214,7 @@ const updatePantryItem = async (req, res) => {
     const { itemId } = req.params
     const update = req.body
 
-    const pantry = await Pantry.findOne({ userId: req.user._id })
+    const pantry = await getCanonicalPantry(req.user)
     if (!pantry) {
       return res.status(404).json({
         success: false,
@@ -262,7 +303,7 @@ const removePantryItem = async (req, res) => {
   try {
     const { itemId } = req.params
 
-    const pantry = await Pantry.findOne({ userId: req.user._id })
+    const pantry = await getCanonicalPantry(req.user)
     if (!pantry) {
       return res.status(404).json({
         success: false,
@@ -301,10 +342,7 @@ const addPantryItem = async (req, res) => {
       })
     }
 
-    let pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      pantry = new Pantry({ userId: req.user._id, items: [] })
-    }
+    let pantry = await getCanonicalPantry(req.user)
 
     // Check for existing item
     const existingItem = pantry.findItem(itemData.name)
@@ -352,13 +390,7 @@ const addItemsToPantry = async (req, res) => {
       })
     }
 
-    let pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      pantry = new Pantry({
-        userId: req.user._id,
-        items: [],
-      })
-    }
+    let pantry = await getCanonicalPantry(req.user)
 
     // Process each item
     const processedItems = []
