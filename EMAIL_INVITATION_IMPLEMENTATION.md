@@ -61,9 +61,6 @@ Added new routes:
 - `GET /household/invitation/:token` - Get invitation details (public)
 - `POST /household/accept-invite` - Accept invitation (authenticated)
 
-Maintained backward compatibility:
-- `POST /household/join` - Still works with invitation codes (legacy)
-
 ### 5. Documentation
 **Files:** `README.MD`, `BACKEND_FAMILY_INVITE_REQUIREMENTS.md`
 

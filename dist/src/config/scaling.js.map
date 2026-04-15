@@ -1,0 +1,1 @@
+{"version":3,"file":"scaling.js","sourceRoot":"","sources":["../../../src/config/scaling.js"],"names":[],"mappings":";;AAAA,MAAM,kBAAkB,GAAG;IACzB,cAAc,EAAE;QACd,KAAK,EAAE,GAAG;QACV,gBAAgB,EAAE,KAAK;QACvB,cAAc,EAAE,KAAK;KACtB;IACD,eAAe,EAAE;QACf,YAAY,EAAE,OAAO,EAAE,mBAAmB;QAC1C,WAAW,EAAE,GAAG,EAAE,2BAA2B;KAC9C;CACF,CAAA"}

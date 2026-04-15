@@ -165,7 +165,6 @@ Authorization: Bearer {userToken}
   household: ObjectId (ref: 'Household'),
   invitedBy: ObjectId (ref: 'User'),
   invitationToken: String, // Unique token (UUID)
-  invitationCode: String,  // Keep for backward compatibility if needed
   status: {
     type: String,
     enum: ['pending', 'accepted', 'declined', 'expired'],
@@ -235,11 +234,8 @@ Authorization: Bearer {userToken}
 
 ## Migration Notes
 
-If you have existing invitations with codes:
-- Keep the `invitationCode` field for backward compatibility
-- Add new `invitationToken` field
-- Support both code-based and token-based acceptance temporarily
-- Migrate old invitations or let them expire naturally
+If you have existing data from older versions, it can be left as-is in MongoDB.
+This implementation only uses `invitationToken` (UUID) for invitations.
 
 ## Example Implementation (Node.js/Express)
 

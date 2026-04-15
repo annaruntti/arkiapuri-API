@@ -1,0 +1,1 @@
+{"version":3,"file":"analytics.d.ts","sourceRoot":"","sources":["../../../src/middleware/analytics.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,QAAQ,EAAE,YAAY,EAAE,MAAM,SAAS,CAAA;AAEzD,QAAA,MAAM,aAAa,GACjB,KAAK,OAAO,EACZ,KAAK,QAAQ,EACb,MAAM,YAAY,KACjB,OAAO,CAAC,IAAI,CAad,CAAA;AAED,eAAe,aAAa,CAAA"}
