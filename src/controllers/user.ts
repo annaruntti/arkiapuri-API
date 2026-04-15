@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken")
-const User = require("../models/user")
-const Household = require("../models/household")
-const Invitation = require("../models/invitation")
+const resolveModel = (modelModule) => modelModule?.default || modelModule
+const User = resolveModel(require("../models/user"))
+const Household = resolveModel(require("../models/household"))
+const Invitation = resolveModel(require("../models/invitation"))
 const sharp = require("sharp")
 const cloudinary = require("../helper/imageUpload")
 const cloudinaryV2 = require("cloudinary").v2
@@ -253,7 +254,7 @@ exports.deleteUserAccount = async (req, res) => {
 
     // If user has a household, remove them from it
     if (user.household) {
-      const Household = require("../models/household")
+      const Household = resolveModel(require("../models/household"))
       const household = await Household.findById(user.household)
       
       if (household) {
@@ -278,7 +279,7 @@ exports.deleteUserAccount = async (req, res) => {
     }
 
     // Delete any invitations sent by this user
-    const Invitation = require("../models/invitation")
+  const Invitation = resolveModel(require("../models/invitation"))
     await Invitation.deleteMany({ invitedBy: userId })
 
     // Delete any pending invitations for this user's email

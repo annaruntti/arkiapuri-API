@@ -1,6 +1,7 @@
-const ShoppingList = require("../models/shoppingList")
-const Pantry = require("../models/pantry")
-const FoodItem = require("../models/foodItem")
+const resolveModel = (modelModule) => modelModule?.default || modelModule
+const ShoppingList = resolveModel(require("../models/shoppingList"))
+const Pantry = resolveModel(require("../models/pantry"))
+const FoodItem = resolveModel(require("../models/foodItem"))
 const {
   getDataOwnership,
   getDataQuery,

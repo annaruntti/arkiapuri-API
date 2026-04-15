@@ -1,6 +1,7 @@
-const Meal = require("../models/meal")
-const User = require("../models/user")
-const FoodItem = require("../models/foodItem")
+const resolveModel = (modelModule) => modelModule?.default || modelModule
+const Meal = resolveModel(require("../models/meal"))
+const User = resolveModel(require("../models/user"))
+const FoodItem = resolveModel(require("../models/foodItem"))
 const cloudinary = require("../helper/imageUpload")
 const fs = require("fs")
 const {

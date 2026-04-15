@@ -1,6 +1,7 @@
-const Household = require("../models/household")
-const User = require("../models/user")
-const Invitation = require("../models/invitation")
+const resolveModel = (modelModule) => modelModule?.default || modelModule
+const Household = resolveModel(require("../models/household"))
+const User = resolveModel(require("../models/user"))
+const Invitation = resolveModel(require("../models/invitation"))
 const { v4: uuidv4 } = require("uuid")
 const { sendFamilyInvitation } = require("../services/emailService")
 

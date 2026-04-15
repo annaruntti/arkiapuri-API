@@ -1,8 +1,9 @@
+const resolveModel = (modelModule) => modelModule?.default || modelModule
 const openFoodFactsService = require("../services/openFoodFactsService")
-const FoodItem = require("../models/foodItem")
-const Pantry = require("../models/pantry")
-const ShoppingList = require("../models/shoppingList")
-const Meal = require("../models/meal")
+const FoodItem = resolveModel(require("../models/foodItem"))
+const Pantry = resolveModel(require("../models/pantry"))
+const ShoppingList = resolveModel(require("../models/shoppingList"))
+const Meal = resolveModel(require("../models/meal"))
 
 /**
  * Search products by barcode
