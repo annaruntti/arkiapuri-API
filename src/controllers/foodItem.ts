@@ -1,6 +1,8 @@
 const resolveModel = (modelModule) => modelModule?.default || modelModule
 const FoodItem = resolveModel(require("../models/foodItem"))
 const User = resolveModel(require("../models/user"))
+const Pantry = resolveModel(require("../models/pantry"))
+const ShoppingList = resolveModel(require("../models/shoppingList"))
 const cloudinary = require("../helper/imageUpload")
 const fs = require("fs")
 
@@ -640,7 +642,6 @@ exports.checkItemAvailability = async (req, res) => {
     }
 
     // Check pantry
-    const Pantry = require("../models/pantry")
     const pantry = await Pantry.findOne({
       userId: req.user._id,
     }).populate("items.foodId")
@@ -676,7 +677,6 @@ exports.checkItemAvailability = async (req, res) => {
     }
 
     // Check shopping lists
-    const ShoppingList = require("../models/shoppingList")
     const shoppingLists = await ShoppingList.find({
       userId: req.user._id,
     }).populate("items.foodId")
