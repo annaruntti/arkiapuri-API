@@ -1,20 +1,36 @@
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const Household = resolveModel(require("../models/household"))
-const User = resolveModel(require("../models/user"))
-const Invitation = resolveModel(require("../models/invitation"))
-const { v4: uuidv4 } = require("uuid")
-const { sendFamilyInvitation } = require("../services/emailService")
+import { Request, Response } from "express"
+import type { Model } from "mongoose"
+import type { IHousehold, HouseholdRole } from "../models/household"
+import type { IInvitation } from "../models/invitation"
+import type { IUserModel } from "../models/user"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  resolveModule,
+} from "../helpers/controllerUtils"
+import { sendFamilyInvitation } from "../services/emailService"
 
-// Create a new household (automatically done when user signs up)
-exports.createHousehold = async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: "Not authenticated" })
-    }
+const Household = resolveModule<Model<IHousehold>>(
+  require("../models/household")
+)
+const User = resolveModule<IUserModel>(require("../models/user"))
+const Invitation = resolveModule<Model<IInvitation>>(
+  require("../models/invitation")
+)
+const { v4: uuidv4 } = require("uuid") as { v4: () => string }
+
+exports.createHousehold = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { name?: string }
+  >,
+  res: Response
+) => {
   try {
     const { name } = req.body
     const userId = req.user._id
 
-    // Check if user already has a household
     if (req.user.household) {
       return res.status(400).json({
         success: false,
@@ -22,13 +38,12 @@ exports.createHousehold = async (req, res) => {
       })
     }
 
-    // Create new household
     const household = new Household({
       name: name || `${req.user.username}n perhe`,
       owner: userId,
       members: [
         {
-          userId: userId,
+          userId,
           role: "owner",
           joinedAt: new Date(),
         },
@@ -36,11 +51,8 @@ exports.createHousehold = async (req, res) => {
     })
 
     await household.save()
-
-    // Update user's household reference
     await User.findByIdAndUpdate(userId, { household: household._id })
 
-    // Get the populated household to return
     const populatedHousehold = await Household.findById(household._id)
       .populate("members.userId", "username email profileImage")
       .populate("owner", "username email profileImage")
@@ -50,17 +62,13 @@ exports.createHousehold = async (req, res) => {
       household: populatedHousehold,
       message: "Perhe luotu onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error creating household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Get household info
-exports.getHousehold = async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: "Not authenticated" })
-    }
+exports.getHousehold = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user._id
 
@@ -77,7 +85,6 @@ exports.getHousehold = async (req, res) => {
       .populate("owner", "username email profileImage")
 
     if (!household) {
-      // Household doesn't exist but user has reference - clean it up
       await User.findByIdAndUpdate(userId, { household: null })
       return res.json({
         success: true,
@@ -86,9 +93,7 @@ exports.getHousehold = async (req, res) => {
       })
     }
 
-    // Check if user is actually a member
     if (!household.isMember(userId)) {
-      // User has reference but is not a member - clean up and return null
       await User.findByIdAndUpdate(userId, { household: null })
       return res.json({
         success: true,
@@ -97,21 +102,21 @@ exports.getHousehold = async (req, res) => {
       })
     }
 
-    res.json({
-      success: true,
-      household,
-    })
-  } catch (error) {
+    res.json({ success: true, household })
+  } catch (error: unknown) {
     console.error("Error fetching household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Update household settings
-exports.updateHousehold = async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: "Not authenticated" })
-    }
+exports.updateHousehold = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { name?: string; settings?: Partial<IHousehold["settings"]> }
+  >,
+  res: Response
+) => {
   try {
     const userId = req.user._id
     const { name, settings } = req.body
@@ -125,7 +130,6 @@ exports.updateHousehold = async (req, res) => {
       })
     }
 
-    // Check if user has permission (owner or admin)
     const role = household.getUserRole(userId)
     if (role !== "owner" && role !== "admin") {
       return res.status(403).json({
@@ -146,17 +150,20 @@ exports.updateHousehold = async (req, res) => {
       household,
       message: "Perheen tiedot päivitetty onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Invite someone to household (with email)
-exports.inviteToHousehold = async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ success: false, error: "Not authenticated" })
-    }
+exports.inviteToHousehold = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { email?: string }
+  >,
+  res: Response
+) => {
   try {
     const userId = req.user._id
     const { email } = req.body
@@ -168,7 +175,6 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       return res.status(400).json({
@@ -177,8 +183,10 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    const household = await Household.findById(req.user.household)
-      .populate("owner", "username email")
+    const household = await Household.findById(req.user.household).populate(
+      "owner",
+      "username email"
+    )
 
     if (!household) {
       return res.status(404).json({
@@ -187,7 +195,6 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Check if user can invite
     if (!household.canInvite(userId)) {
       return res.status(403).json({
         success: false,
@@ -195,7 +202,6 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Check if email is already a member
     const existingUser = await User.findOne({ email: email.toLowerCase() })
     if (existingUser && household.isMember(existingUser._id)) {
       return res.status(400).json({
@@ -204,7 +210,6 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Check if there's already a pending invitation for this email
     const existingInvitation = await Invitation.findOne({
       email: email.toLowerCase(),
       household: household._id,
@@ -219,10 +224,7 @@ exports.inviteToHousehold = async (req, res) => {
       })
     }
 
-    // Generate unique invitation token
     const invitationToken = uuidv4()
-
-    // Create invitation in separate collection
     const invitation = new Invitation({
       email: email.toLowerCase(),
       household: household._id,
@@ -233,7 +235,6 @@ exports.inviteToHousehold = async (req, res) => {
 
     await invitation.save()
 
-    // Send email with invitation link
     const frontendUrl = process.env.FRONTEND_URL || "arkiapuri://"
     const webUrl = process.env.WEB_URL || "http://localhost:8081"
     const inviteLink = `${frontendUrl}accept-invite/${invitationToken}`
@@ -248,14 +249,14 @@ exports.inviteToHousehold = async (req, res) => {
       invitationToken,
     })
 
-
     if (!emailResult.success) {
-      // If email fails, return error and do not claim success
       console.error("Failed to send invitation email:", emailResult.error)
       return res.status(500).json({
         success: false,
-        message: `Kutsun luonti epäonnistui: sähköpostin lähetys epäonnistui (${emailResult.error?.message || emailResult.error})`,
-        inviteLink, // Optionally return link for manual sharing
+        message: `Kutsun luonti epäonnistui: sähköpostin lähetys epäonnistui (${
+          emailResult.error || "unknown error"
+        })`,
+        inviteLink,
       })
     }
 
@@ -263,14 +264,16 @@ exports.inviteToHousehold = async (req, res) => {
       success: true,
       message: `Kutsusähköposti lähetetty osoitteeseen ${email}`,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error inviting to household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Leave household
-exports.leaveHousehold = async (req, res) => {
+exports.leaveHousehold = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const userId = req.user._id
 
@@ -290,7 +293,6 @@ exports.leaveHousehold = async (req, res) => {
       })
     }
 
-    // Check if user is the owner
     if (household.owner.toString() === userId.toString()) {
       return res.status(400).json({
         success: false,
@@ -299,28 +301,27 @@ exports.leaveHousehold = async (req, res) => {
       })
     }
 
-    // Remove user from household members
     household.members = household.members.filter(
       (member) => member.userId.toString() !== userId.toString()
     )
 
     await household.save()
-
-    // Update user's household reference
     await User.findByIdAndUpdate(userId, { household: null })
 
     res.json({
       success: true,
       message: "Poistuit perheestä onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error leaving household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Remove member from household (admin/owner only)
-exports.removeMember = async (req, res) => {
+exports.removeMember = async (
+  req: AuthenticatedRequest<{ memberId: string }>,
+  res: Response
+) => {
   try {
     const userId = req.user._id
     const { memberId } = req.params
@@ -334,7 +335,6 @@ exports.removeMember = async (req, res) => {
       })
     }
 
-    // Check if user has permission (owner or admin)
     const role = household.getUserRole(userId)
     if (role !== "owner" && role !== "admin") {
       return res.status(403).json({
@@ -343,7 +343,6 @@ exports.removeMember = async (req, res) => {
       })
     }
 
-    // Can't remove the owner
     if (household.owner.toString() === memberId) {
       return res.status(400).json({
         success: false,
@@ -351,34 +350,37 @@ exports.removeMember = async (req, res) => {
       })
     }
 
-    // Remove member
     household.members = household.members.filter(
       (member) => member.userId.toString() !== memberId
     )
 
     await household.save()
-
-    // Update user's household reference
     await User.findByIdAndUpdate(memberId, { household: null })
 
     res.json({
       success: true,
       message: "Jäsen poistettu onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error removing member:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Update member role (owner only)
-exports.updateMemberRole = async (req, res) => {
+exports.updateMemberRole = async (
+  req: AuthenticatedRequest<
+    { memberId: string },
+    unknown,
+    { role?: HouseholdRole }
+  >,
+  res: Response
+) => {
   try {
     const userId = req.user._id
     const { memberId } = req.params
     const { role } = req.body
 
-    if (!["admin", "member"].includes(role)) {
+    if (!role || !["admin", "member"].includes(role)) {
       return res.status(400).json({
         success: false,
         message: "Virheellinen rooli",
@@ -394,7 +396,6 @@ exports.updateMemberRole = async (req, res) => {
       })
     }
 
-    // Only owner can update roles
     if (household.owner.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -402,7 +403,6 @@ exports.updateMemberRole = async (req, res) => {
       })
     }
 
-    // Find member
     const member = household.members.find(
       (m) => m.userId.toString() === memberId
     )
@@ -414,7 +414,6 @@ exports.updateMemberRole = async (req, res) => {
       })
     }
 
-    // Can't change owner's role
     if (household.owner.toString() === memberId) {
       return res.status(400).json({
         success: false,
@@ -430,17 +429,18 @@ exports.updateMemberRole = async (req, res) => {
       household,
       message: "Jäsenen rooli päivitetty onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating member role:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Delete household (owner only)
-exports.deleteHousehold = async (req, res) => {
+exports.deleteHousehold = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const userId = req.user._id
-
     const household = await Household.findById(req.user.household)
 
     if (!household) {
@@ -450,7 +450,6 @@ exports.deleteHousehold = async (req, res) => {
       })
     }
 
-    // Only owner can delete
     if (household.owner.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -458,25 +457,24 @@ exports.deleteHousehold = async (req, res) => {
       })
     }
 
-    // Update all members' household reference
     const memberIds = household.members.map((m) => m.userId)
     await User.updateMany({ _id: { $in: memberIds } }, { household: null })
-
-    // Delete household
     await Household.findByIdAndDelete(household._id)
 
     res.json({
       success: true,
       message: "Perhe poistettu onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error deleting household:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Get invitation details by token (no auth required)
-exports.getInvitationByToken = async (req, res) => {
+exports.getInvitationByToken = async (
+  req: Request<{ token: string }>,
+  res: Response
+) => {
   try {
     const { token } = req.params
 
@@ -487,7 +485,6 @@ exports.getInvitationByToken = async (req, res) => {
       })
     }
 
-    // Find invitation by token
     const invitation = await Invitation.findOne({ invitationToken: token })
       .populate("household", "name members")
       .populate("invitedBy", "username email")
@@ -506,9 +503,7 @@ exports.getInvitationByToken = async (req, res) => {
       })
     }
 
-    // Check if invitation is valid
     if (!invitation.isValid()) {
-      // Mark as expired if it's past the expiry date
       if (invitation.status === "pending" && new Date() > invitation.expiresAt) {
         await invitation.markExpired()
       }
@@ -531,14 +526,20 @@ exports.getInvitationByToken = async (req, res) => {
         expiresAt: invitation.expiresAt,
       },
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error fetching invitation:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Accept invitation using token
-exports.acceptInvitation = async (req, res) => {
+exports.acceptInvitation = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { invitationToken?: string }
+  >,
+  res: Response
+) => {
   try {
     const userId = req.user._id
     const { invitationToken } = req.body
@@ -550,7 +551,6 @@ exports.acceptInvitation = async (req, res) => {
       })
     }
 
-    // Check if user already has a household
     if (req.user.household) {
       return res.status(400).json({
         success: false,
@@ -558,9 +558,9 @@ exports.acceptInvitation = async (req, res) => {
       })
     }
 
-    // Find invitation by token
-    const invitation = await Invitation.findOne({ invitationToken })
-      .populate("household")
+    const invitation = await Invitation.findOne({
+      invitationToken,
+    }).populate("household")
 
     if (!invitation) {
       return res.status(404).json({
@@ -569,9 +569,7 @@ exports.acceptInvitation = async (req, res) => {
       })
     }
 
-    // Check if invitation is valid
     if (!invitation.isValid()) {
-      // Mark as expired if it's past the expiry date
       if (invitation.status === "pending" && new Date() > invitation.expiresAt) {
         await invitation.markExpired()
       }
@@ -582,7 +580,7 @@ exports.acceptInvitation = async (req, res) => {
       })
     }
 
-    const household = invitation.household
+    const household = invitation.household as unknown as IHousehold | null
 
     if (!household) {
       return res.status(404).json({
@@ -591,32 +589,27 @@ exports.acceptInvitation = async (req, res) => {
       })
     }
 
-    // Optional: Warn if email doesn't match but allow join anyway
     if (invitation.email !== req.user.email.toLowerCase()) {
       console.warn(
         `User ${req.user.email} accepting invitation for ${invitation.email}`
       )
     }
 
-    // Add user to household
     household.members.push({
-      userId: userId,
+      userId,
       role: "member",
       joinedAt: new Date(),
     })
 
     await household.save()
 
-    // Update invitation status
     invitation.status = "accepted"
     invitation.acceptedAt = new Date()
     invitation.acceptedBy = userId
     await invitation.save()
 
-    // Update user's household reference
     await User.findByIdAndUpdate(userId, { household: household._id })
 
-    // Get populated household to return
     const populatedHousehold = await Household.findById(household._id)
       .populate("members.userId", "username email profileImage")
       .populate("owner", "username email profileImage")
@@ -626,9 +619,8 @@ exports.acceptInvitation = async (req, res) => {
       household: populatedHousehold,
       message: "Liityit perheeseen onnistuneesti",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error accepting invitation:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
-

@@ -1,11 +1,17 @@
+import { Request, Response } from "express"
+import { getErrorMessage } from "../helpers/controllerUtils"
+
+// google-cloud/vision is consumed as CJS namespace (not a default export)
 const vision = require("@google-cloud/vision")
 
-// Create Google Vision client
 const client = new vision.ImageAnnotatorClient({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
 })
 
-exports.analyzeImage = async (req, res) => {
+exports.analyzeImage = async (
+  req: Request<Record<string, string>, unknown, { image?: string }>,
+  res: Response
+) => {
   try {
     const { image } = req.body
 
@@ -16,31 +22,25 @@ exports.analyzeImage = async (req, res) => {
       })
     }
 
-    // Convert base64 to buffer
     const buffer = Buffer.from(image, "base64")
 
-    // Perform multiple detection types in parallel
     const [textResult, objectResult, labelResult] = await Promise.all([
       client.textDetection(buffer),
       client.objectLocalization(buffer),
       client.labelDetection(buffer),
     ])
 
-    const response = {
+    res.json({
+      success: true,
       textAnnotations: textResult[0].textAnnotations,
       localizedObjectAnnotations: objectResult[0].localizedObjectAnnotations,
       labelAnnotations: labelResult[0].labelAnnotations,
-    }
-
-    res.json({
-      success: true,
-      ...response,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Vision API Error:", error)
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }

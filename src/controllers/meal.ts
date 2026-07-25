@@ -1,15 +1,60 @@
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const Meal = resolveModel(require("../models/meal"))
-const User = resolveModel(require("../models/user"))
-const FoodItem = resolveModel(require("../models/foodItem"))
-const cloudinary = require("../helper/imageUpload")
-const fs = require("fs")
-const {
+import { Response } from "express"
+import type { Model } from "mongoose"
+import fs from "fs"
+import cloudinary from "../helper/imageUpload"
+import type { IFoodItem } from "../models/foodItem"
+import type { IMeal, MealRole } from "../models/meal"
+import type { IUserModel } from "../models/user"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  isCloudinaryConfigured,
+  resolveModule,
+} from "../helpers/controllerUtils"
+import {
   getDataOwnership,
   getDataQuery,
-} = require("../helpers/householdHelpers")
+} from "../helpers/householdHelpers"
 
-exports.createMeal = async (req, res) => {
+const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
+const User = resolveModule<IUserModel>(require("../models/user"))
+const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
+
+const FOOD_ITEM_SELECT =
+  "name unit category calories price quantities locations image"
+
+const VALID_ROLES: MealRole[] = [
+  "breakfast",
+  "lunch",
+  "snack",
+  "dinner",
+  "supper",
+  "dessert",
+  "other",
+]
+
+interface CreateMealBody {
+  name?: string
+  recipe?: string
+  difficultyLevel?: "easy" | "medium" | "hard"
+  cookingTime?: number
+  foodItems?: string[]
+  defaultRoles?: string[]
+  mealCategory?: IMeal["mealCategory"]
+  plannedCookingDate?: string
+  plannedEatingDates?: string[]
+  createdAt?: string | Date
+}
+
+const mealAccessQuery = (user: AuthenticatedRequest["user"], mealId: string) => ({
+  _id: mealId,
+  ...getDataQuery(user, "user"),
+})
+
+exports.createMeal = async (
+  req: AuthenticatedRequest<Record<string, string>, unknown, CreateMealBody>,
+  res: Response
+) => {
   try {
     const {
       name,
@@ -24,7 +69,6 @@ exports.createMeal = async (req, res) => {
       createdAt,
     } = req.body
 
-    // Validate required fields
     if (!name || !recipe) {
       return res.status(400).json({
         success: false,
@@ -32,7 +76,6 @@ exports.createMeal = async (req, res) => {
       })
     }
 
-    // Validate date format
     if (plannedCookingDate && !Date.parse(plannedCookingDate)) {
       return res.status(400).json({
         success: false,
@@ -40,29 +83,23 @@ exports.createMeal = async (req, res) => {
       })
     }
 
-    // Validate plannedEatingDates if provided
-    let validatedEatingDates = []
-    if (
-      plannedEatingDates &&
-      Array.isArray(plannedEatingDates) &&
-      plannedEatingDates.length > 0
-    ) {
+    let validatedEatingDates: string[] = []
+    if (Array.isArray(plannedEatingDates) && plannedEatingDates.length > 0) {
       validatedEatingDates = plannedEatingDates.filter(
         (date) => date && Date.parse(date)
       )
     }
 
-    // If no eating dates provided, default to cooking date if available
     if (validatedEatingDates.length === 0 && plannedCookingDate) {
       validatedEatingDates = [plannedCookingDate]
     }
 
-    // Validate foodItems and check are they belonging to the user
     if (foodItems && foodItems.length > 0) {
-      const validFoodItems = await FoodItem.find({
+      const foodItemQuery = {
         _id: { $in: foodItems },
-        user: req.user._id,
-      })
+        ...getDataQuery(req.user, "user"),
+      }
+      const validFoodItems = await FoodItem.find(foodItemQuery)
 
       if (validFoodItems.length !== foodItems.length) {
         return res.status(400).json({
@@ -71,17 +108,6 @@ exports.createMeal = async (req, res) => {
         })
       }
     }
-
-    // DefaultRoles validation
-    const validRoles = [
-      "breakfast",
-      "lunch",
-      "snack",
-      "dinner",
-      "supper",
-      "dessert",
-      "other",
-    ]
 
     if (
       !defaultRoles ||
@@ -94,82 +120,76 @@ exports.createMeal = async (req, res) => {
       })
     }
 
-    // Validate is roles allowed
     const invalidRoles = defaultRoles.filter(
-      (role) => !validRoles.includes(role)
+      (role) => !VALID_ROLES.includes(role as MealRole)
     )
     if (invalidRoles.length > 0) {
       return res.status(400).json({
         success: false,
         message: `Invalid roles found: ${invalidRoles.join(
           ", "
-        )}. Allowed roles are: ${validRoles.join(", ")}`,
+        )}. Allowed roles are: ${VALID_ROLES.join(", ")}`,
       })
     }
 
-    // Create meal data object
     const ownership = getDataOwnership(req.user)
-    const mealData = {
+    const meal = new Meal({
       name,
       recipe,
       difficultyLevel,
       cookingTime,
       foodItems,
-      defaultRoles: defaultRoles,
+      defaultRoles,
       mealCategory,
       plannedCookingDate,
       plannedEatingDates: validatedEatingDates,
       user: ownership.userId,
       household: ownership.household,
       createdAt,
-    }
+    })
 
-    const meal = new Meal(mealData)
     await meal.save()
 
-    // Update user's meals array
     await User.findByIdAndUpdate(req.user._id, {
       $push: { meals: meal._id },
     })
 
-    // Get the populated meal to return
     const populatedMeal = await Meal.findById(meal._id).populate({
       path: "foodItems",
-      select:
-        "name quantity unit category calories price location quantities locations",
+      select: FOOD_ITEM_SELECT,
     })
 
     res.json({ success: true, meal: populatedMeal })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error creating meal:", error)
-    res.status(400).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Get all meals for the current user or household
-exports.getMeals = async (req, res) => {
+exports.getMeals = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const query = getDataQuery(req.user, "user")
     const meals = await Meal.find(query).populate({
       path: "foodItems",
-      select:
-        "name quantity unit category calories price location quantities locations",
+      select: FOOD_ITEM_SELECT,
     })
     res.json({ success: true, meals })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error getting meals:", error)
-    res.status(500).json({ success: false, error: error.message })
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Update a meal
-exports.updateMeal = async (req, res) => {
+exports.updateMeal = async (
+  req: AuthenticatedRequest<{ mealId: string }, unknown, CreateMealBody>,
+  res: Response
+) => {
   try {
     const { mealId } = req.params
-    const updateData = req.body
+    const updateData = { ...req.body }
+    const accessQuery = mealAccessQuery(req.user, mealId)
 
-    // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
+    const meal = await Meal.findOne(accessQuery)
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -177,58 +197,51 @@ exports.updateMeal = async (req, res) => {
       })
     }
 
-    // Validate and process plannedEatingDates if provided
     if (updateData.plannedEatingDates !== undefined) {
       if (Array.isArray(updateData.plannedEatingDates)) {
-        // Filter out invalid dates and normalize them
         const validDates = updateData.plannedEatingDates
           .filter((date) => date && Date.parse(date))
           .map((date) => {
-            // Normalize dates to start of day to avoid timezone issues
             const normalizedDate = new Date(date)
             normalizedDate.setUTCHours(0, 0, 0, 0)
             return normalizedDate.toISOString()
           })
 
-        // Remove duplicates
         updateData.plannedEatingDates = [...new Set(validDates)]
 
-        // If no eating dates after validation, default to cooking date
         if (updateData.plannedEatingDates.length === 0) {
           const cookingDate =
             updateData.plannedCookingDate || meal.plannedCookingDate
           if (cookingDate) {
-            updateData.plannedEatingDates = [cookingDate]
+            updateData.plannedEatingDates = [String(cookingDate)]
           }
         }
       }
     }
 
-    // Update the meal
-    const updatedMeal = await Meal.findOneAndUpdate(
-      { _id: mealId, user: req.user._id },
-      updateData,
-      { new: true }
-    ).populate({
+    const updatedMeal = await Meal.findOneAndUpdate(accessQuery, updateData, {
+      new: true,
+    }).populate({
       path: "foodItems",
-      select:
-        "name quantity unit category calories price location quantities locations",
+      select: FOOD_ITEM_SELECT,
     })
 
     res.json({ success: true, meal: updatedMeal })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating meal:", error)
-    res.status(400).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Delete a meal
-exports.deleteMeal = async (req, res) => {
+exports.deleteMeal = async (
+  req: AuthenticatedRequest<{ mealId: string }>,
+  res: Response
+) => {
   try {
     const { mealId } = req.params
+    const accessQuery = mealAccessQuery(req.user, mealId)
 
-    // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
+    const meal = await Meal.findOne(accessQuery)
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -236,23 +249,25 @@ exports.deleteMeal = async (req, res) => {
       })
     }
 
-    // Delete the meal
-    await Meal.findOneAndDelete({ _id: mealId, user: req.user._id })
+    await Meal.findOneAndDelete(accessQuery)
 
-    // Remove the meal from the user's meals array
     await User.findByIdAndUpdate(req.user._id, {
       $pull: { meals: meal._id },
     })
 
     res.json({ success: true, message: "Meal deleted successfully" })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error deleting meal:", error)
-    res.status(400).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Upload meal image
-exports.uploadMealImage = async (req, res) => {
+exports.uploadMealImage = async (
+  req: AuthenticatedRequest<{ mealId: string }> & {
+    file?: Express.Multer.File
+  },
+  res: Response
+) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -262,9 +277,8 @@ exports.uploadMealImage = async (req, res) => {
     }
 
     const { mealId } = req.params
+    const meal = await Meal.findOne(mealAccessQuery(req.user, mealId))
 
-    // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -272,12 +286,7 @@ exports.uploadMealImage = async (req, res) => {
       })
     }
 
-    // Check Cloudinary credentials
-    if (
-      !process.env.CLOUDINARY_USER_NAME ||
-      !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_KEY_SECRET
-    ) {
+    if (!isCloudinaryConfigured()) {
       return res.status(500).json({
         success: false,
         message: "Cloud storage not configured",
@@ -285,13 +294,11 @@ exports.uploadMealImage = async (req, res) => {
     }
 
     try {
-      // Upload to Cloudinary
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "meal-images",
         use_filename: true,
       })
 
-      // Update meal with image
       const updatedMeal = await Meal.findByIdAndUpdate(
         mealId,
         {
@@ -303,41 +310,36 @@ exports.uploadMealImage = async (req, res) => {
         { new: true }
       ).populate({
         path: "foodItems",
-        select:
-          "name quantity unit category calories price location quantities locations",
+        select: FOOD_ITEM_SELECT,
       })
 
-      // Clean up the uploaded file
       fs.unlinkSync(req.file.path)
 
-      res.json({
-        success: true,
-        meal: updatedMeal,
-      })
-    } catch (uploadError) {
-      // Clean up the uploaded file in case of error
+      res.json({ success: true, meal: updatedMeal })
+    } catch (uploadError: unknown) {
       if (req.file.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)
       }
       throw uploadError
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Upload error:", error)
     res.status(500).json({
       success: false,
       message: "Image upload failed",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Remove meal image
-exports.removeMealImage = async (req, res) => {
+exports.removeMealImage = async (
+  req: AuthenticatedRequest<{ mealId: string }>,
+  res: Response
+) => {
   try {
     const { mealId } = req.params
+    const meal = await Meal.findOne(mealAccessQuery(req.user, mealId))
 
-    // Find the meal and check if it belongs to the user
-    const meal = await Meal.findOne({ _id: mealId, user: req.user._id })
     if (!meal) {
       return res.status(404).json({
         success: false,
@@ -345,20 +347,14 @@ exports.removeMealImage = async (req, res) => {
       })
     }
 
-    // Check if meal has an image
-    if (!meal.image || !meal.image.publicId) {
+    if (!meal.image?.publicId) {
       return res.status(400).json({
         success: false,
         message: "No image to remove",
       })
     }
 
-    // Check Cloudinary credentials
-    if (
-      !process.env.CLOUDINARY_USER_NAME ||
-      !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_KEY_SECRET
-    ) {
+    if (!isCloudinaryConfigured()) {
       return res.status(500).json({
         success: false,
         message: "Cloud storage not configured",
@@ -366,36 +362,28 @@ exports.removeMealImage = async (req, res) => {
     }
 
     try {
-      // Delete from Cloudinary
       await cloudinary.uploader.destroy(meal.image.publicId)
 
-      // Update meal to remove image
       const updatedMeal = await Meal.findByIdAndUpdate(
         mealId,
-        {
-          $unset: { image: 1 },
-        },
+        { $unset: { image: 1 } },
         { new: true }
       ).populate({
         path: "foodItems",
-        select:
-          "name quantity unit category calories price location quantities locations",
+        select: FOOD_ITEM_SELECT,
       })
 
-      res.json({
-        success: true,
-        meal: updatedMeal,
-      })
-    } catch (deleteError) {
+      res.json({ success: true, meal: updatedMeal })
+    } catch (deleteError: unknown) {
       console.error("Error deleting from Cloudinary:", deleteError)
       throw deleteError
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Remove image error:", error)
     res.status(500).json({
       success: false,
       message: "Image removal failed",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }

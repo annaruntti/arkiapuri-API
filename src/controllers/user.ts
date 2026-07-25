@@ -1,181 +1,211 @@
-const jwt = require("jsonwebtoken")
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const User = resolveModel(require("../models/user"))
-const Household = resolveModel(require("../models/household"))
-const Invitation = resolveModel(require("../models/invitation"))
-const sharp = require("sharp")
-const cloudinary = require("../helper/imageUpload")
-const cloudinaryV2 = require("cloudinary").v2
-const { Readable } = require("stream")
-const fs = require("fs")
+import { Request, Response } from "express"
+import type { Model } from "mongoose"
+import jwt from "jsonwebtoken"
+import fs from "fs"
+import cloudinary from "../helper/imageUpload"
+import type { IUserModel } from "../models/user"
+import type { IHousehold } from "../models/household"
+import type { IInvitation } from "../models/invitation"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  isCloudinaryConfigured,
+  resolveModule,
+} from "../helpers/controllerUtils"
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_USER_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_KEY_SECRET,
-})
+const User = resolveModule<IUserModel>(require("../models/user"))
+const Household = resolveModule<Model<IHousehold>>(require("../models/household"))
+const Invitation = resolveModule<Model<IInvitation>>(
+  require("../models/invitation")
+)
 
-exports.createUser = async (req, res) => {
-  const { username, email, password } = req.body
-  const isNewUser = await User.isThisEmailInUse(email)
-  if (!isNewUser)
-    return res.json({
-      success: false,
-      message: "This email is already in use, try sign-in",
-    })
-  
-  const user = await User({
-    username,
-    email,
-    password,
-  })
-  await user.save()
+exports.createUser = async (
+  req: Request<
+    Record<string, string>,
+    unknown,
+    { username?: string; email?: string; password?: string }
+  >,
+  res: Response
+) => {
+  try {
+    const { username, email, password } = req.body
 
-  // Check if user has a pending invitation
-  const pendingInvitation = await Invitation.findOne({
-    email: email.toLowerCase(),
-    status: "pending",
-    expiresAt: { $gt: new Date() }
-  })
-
-  // Only create a household if there's no pending invitation
-  if (!pendingInvitation) {
-    try {
-      const household = new Household({
-        name: `${username}n perhe`,
-        owner: user._id,
-        members: [
-          {
-            userId: user._id,
-            role: "owner",
-            joinedAt: new Date(),
-          },
-        ],
+    if (!username || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username, email and password are required",
       })
-      await household.save()
-
-      // Update user with household reference
-      user.household = household._id
-      await user.save()
-    } catch (householdError) {
-      console.error("Error creating household for new user:", householdError)
-      // Continue even if household creation fails
     }
-  } else {
-    console.log(`User ${email} has pending invitation - skipping household creation`)
-  }
 
-  res.json({ success: true, user })
-}
+    const isNewUser = await User.isThisEmailInUse(email)
+    if (!isNewUser) {
+      return res.json({
+        success: false,
+        message: "This email is already in use, try sign-in",
+      })
+    }
 
-exports.userSignIn = async (req, res) => {
-  const { email, password } = req.body
+    const user = new User({ username, email, password })
+    await user.save()
 
-  const user = await User.findOne({ email })
-
-  if (!user)
-    return res.json({
-      success: false,
-      message: "user not found, with the given email!",
+    const pendingInvitation = await Invitation.findOne({
+      email: email.toLowerCase(),
+      status: "pending",
+      expiresAt: { $gt: new Date() },
     })
 
-  const isMatch = await user.comparePassword(password)
-  if (!isMatch)
-    return res.json({
-      success: false,
-      message: "email / password does not match!",
-    })
+    if (!pendingInvitation) {
+      try {
+        const household = new Household({
+          name: `${username}n perhe`,
+          owner: user._id,
+          members: [
+            {
+              userId: user._id,
+              role: "owner",
+              joinedAt: new Date(),
+            },
+          ],
+        })
+        await household.save()
 
-  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-    expiresIn: "1d",
-  })
-
-  let oldTokens = user.tokens || []
-
-  if (oldTokens.length) {
-    oldTokens = oldTokens.filter((t) => {
-      const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000
-      if (timeDiff < 86400) {
-        return t
+        user.household = household._id
+        await user.save()
+      } catch (householdError) {
+        console.error("Error creating household for new user:", householdError)
       }
-    })
+    } else {
+      console.log(
+        `User ${email} has pending invitation - skipping household creation`
+      )
+    }
+
+    res.json({ success: true, user })
+  } catch (error: unknown) {
+    console.error("Error creating user:", error)
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
-
-  await User.findByIdAndUpdate(user._id, {
-    tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
-  })
-
-  const userInfo = {
-    username: user.username,
-    email: user.email,
-    avatar: user.avatar ? user.avatar : "",
-  }
-
-  const populatedUser = await User.findById(user._id)
-    .select("-password")
-    .populate("foodItems")
-    .populate("meals")
-
-  res.json({ success: true, user: populatedUser, token })
 }
 
-exports.uploadProfile = async (req, res) => {
-  const { user } = req
-  if (!user)
+exports.userSignIn = async (
+  req: Request<
+    Record<string, string>,
+    unknown,
+    { email?: string; password?: string }
+  >,
+  res: Response
+) => {
+  try {
+    const { email, password } = req.body
+
+    if (!email || !password) {
+      return res.json({
+        success: false,
+        message: "email / password does not match!",
+      })
+    }
+
+    const user = await User.findOne({ email })
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "user not found, with the given email!",
+      })
+    }
+
+    const isMatch = await user.comparePassword(password)
+    if (!isMatch) {
+      return res.json({
+        success: false,
+        message: "email / password does not match!",
+      })
+    }
+
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "1d" }
+    )
+
+    const populatedUser = await User.findById(user._id)
+      .select("-password")
+      .populate("foodItems")
+      .populate("meals")
+
+    res.json({ success: true, user: populatedUser, token })
+  } catch (error: unknown) {
+    console.error("Error signing in:", error)
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+exports.uploadProfile = async (
+  req: AuthenticatedRequest & { file?: Express.Multer.File },
+  res: Response
+) => {
+  if (!req.user) {
     return res
       .status(401)
       .json({ success: false, message: "unauthorized access!" })
+  }
 
   try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image file provided",
+      })
+    }
+
     const result = await cloudinary.uploader.upload(req.file.path, {
-      public_id: `${user._id}_profile`,
+      public_id: `${req.user._id}_profile`,
       width: 500,
       height: 500,
       crop: "fill",
     })
 
-    await User.findByIdAndUpdate(user._id, { avatar: result.url })
+    await User.findByIdAndUpdate(req.user._id, { avatar: result.url })
     res
       .status(201)
       .json({ success: true, message: "Your profile has updated!" })
-  } catch (error) {
+  } catch (error: unknown) {
+    console.log("Error while uploading profile image", getErrorMessage(error))
     res
       .status(500)
       .json({ success: false, message: "server error, try after some time" })
-    console.log("Error while uploading profile image", error.message)
   }
 }
 
-exports.signOut = async (req, res) => {
-  if (req.headers && req.headers.authorization) {
-    const token = req.headers.authorization.split(" ")[1]
-    if (!token) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Authorization fail!" })
-    }
-
-    const tokens = req.user.tokens
-
-    const newTokens = tokens.filter((t) => t.token !== token)
-
-    await User.findByIdAndUpdate(req.user._id, { tokens: newTokens })
-    res.json({ success: true, message: "Sign out successfully!" })
+exports.signOut = async (req: AuthenticatedRequest, res: Response) => {
+  // Stateless JWT auth: client discards the token. No server-side token store.
+  if (!req.headers?.authorization) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Authorization fail!" })
   }
+
+  const token = req.headers.authorization.split(" ")[1]
+  if (!token) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Authorization fail!" })
+  }
+
+  res.json({ success: true, message: "Sign out successfully!" })
 }
 
-exports.getUserProfile = async (req, res) => {
+exports.getUserProfile = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
-    // Find user and populate their food items and meals
     const user = await User.findById(req.user._id)
-      .select("-password") // Exclude password
+      .select("-password")
       .populate("foodItems")
       .populate({
         path: "meals",
-        populate: {
-          path: "foodItems", // Populate food items within meals
-        },
+        populate: { path: "foodItems" },
       })
 
     if (!user) {
@@ -185,19 +215,23 @@ exports.getUserProfile = async (req, res) => {
       })
     }
 
-    res.json({
-      success: true,
-      user,
-    })
-  } catch (error) {
+    res.json({ success: true, user })
+  } catch (error: unknown) {
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-exports.updateUserProfile = async (req, res) => {
+exports.updateUserProfile = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { username?: string; currentPassword?: string; newPassword?: string }
+  >,
+  res: Response
+) => {
   try {
     const { username, currentPassword, newPassword } = req.body
     const userId = req.user._id
@@ -207,98 +241,92 @@ exports.updateUserProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" })
     }
 
-    // Update username if provided
     if (username && username !== user.username) {
       user.username = username
     }
 
-    // Update password if provided
     if (currentPassword && newPassword) {
-      // Verify current password
       const isMatch = await user.comparePassword(currentPassword)
       if (!isMatch) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Nykyinen salasana on virheellinen" 
+        return res.status(400).json({
+          success: false,
+          message: "Nykyinen salasana on virheellinen",
         })
       }
-
-      // Update to new password
       user.password = newPassword
     }
 
     await user.save()
 
-    // Return updated user without password
     const updatedUser = await User.findById(userId).select("-password")
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       user: updatedUser,
-      message: "Profile updated successfully" 
+      message: "Profile updated successfully",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error updating user profile:", error)
     res.status(500).json({ success: false, message: "Server error" })
   }
 }
 
-exports.deleteUserAccount = async (req, res) => {
+exports.deleteUserAccount = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const userId = req.user._id
 
-    const user = await User.findById(userId).populate('household')
+    const user = await User.findById(userId)
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" })
     }
 
-    // If user has a household, remove them from it
     if (user.household) {
-      const Household = resolveModel(require("../models/household"))
       const household = await Household.findById(user.household)
-      
+
       if (household) {
-        // Remove user from household members
-        household.members = household.members.filter(
-          memberId => memberId.toString() !== userId.toString()
+        const isOwner = household.owner.toString() === userId.toString()
+        const remainingMembers = household.members.filter(
+          (member) => member.userId.toString() !== userId.toString()
         )
 
-        // If user was the admin and there are other members, assign new admin
-        if (household.admin && household.admin.toString() === userId.toString()) {
-          if (household.members.length > 0) {
-            household.admin = household.members[0]
-            await household.save()
-          } else {
-            // If no other members, delete the household
+        if (isOwner) {
+          if (remainingMembers.length === 0) {
             await Household.findByIdAndDelete(household._id)
+          } else {
+            const newOwner = remainingMembers[0]
+            household.owner = newOwner.userId
+            newOwner.role = "owner"
+            household.members = remainingMembers
+            await household.save()
           }
         } else {
+          household.members = remainingMembers
           await household.save()
         }
       }
     }
 
-    // Delete any invitations sent by this user
-  const Invitation = resolveModel(require("../models/invitation"))
     await Invitation.deleteMany({ invitedBy: userId })
-
-    // Delete any pending invitations for this user's email
     await Invitation.deleteMany({ email: user.email.toLowerCase() })
-
-    // Delete the user
     await User.findByIdAndDelete(userId)
 
-    res.json({ 
-      success: true, 
-      message: "Account deleted successfully" 
+    res.json({
+      success: true,
+      message: "Account deleted successfully",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error deleting user account:", error)
     res.status(500).json({ success: false, message: "Server error" })
   }
 }
 
-exports.uploadProfileImage = async (req, res) => {
+exports.uploadProfileImage = async (
+  req: AuthenticatedRequest & { file?: Express.Multer.File },
+  res: Response
+) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -307,12 +335,7 @@ exports.uploadProfileImage = async (req, res) => {
       })
     }
 
-    // Check Cloudinary credentials
-    if (
-      !process.env.CLOUDINARY_USER_NAME ||
-      !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_KEY_SECRET
-    ) {
+    if (!isCloudinaryConfigured()) {
       return res.status(500).json({
         success: false,
         message: "Cloud storage not configured",
@@ -320,13 +343,11 @@ exports.uploadProfileImage = async (req, res) => {
     }
 
     try {
-      // Upload to Cloudinary
       const result = await cloudinary.uploader.upload(req.file.path, {
         folder: "profile-images",
         use_filename: true,
       })
 
-      // Update user profile
       const user = await User.findByIdAndUpdate(
         req.user._id,
         {
@@ -338,26 +359,21 @@ exports.uploadProfileImage = async (req, res) => {
         { new: true }
       ).select("-password")
 
-      // Clean up the uploaded file
       fs.unlinkSync(req.file.path)
 
-      res.json({
-        success: true,
-        user,
-      })
-    } catch (uploadError) {
-      // Clean up the uploaded file in case of error
+      res.json({ success: true, user })
+    } catch (uploadError: unknown) {
       if (req.file.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)
       }
       throw uploadError
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Upload error:", error)
     res.status(500).json({
       success: false,
       message: "Image upload failed",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }

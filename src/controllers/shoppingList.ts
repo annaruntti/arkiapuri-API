@@ -1,17 +1,114 @@
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const ShoppingList = resolveModel(require("../models/shoppingList"))
-const Pantry = resolveModel(require("../models/pantry"))
-const FoodItem = resolveModel(require("../models/foodItem"))
-const {
+import { Response } from "express"
+import type { Model } from "mongoose"
+import type { IPantryItem } from "../models/pantry"
+import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  resolveModule,
+} from "../helpers/controllerUtils"
+import {
   getDataOwnership,
   getDataQuery,
-} = require("../helpers/householdHelpers")
+} from "../helpers/householdHelpers"
+import { getCanonicalPantry } from "../helpers/pantryHelpers"
 
-exports.createShoppingList = async (req, res) => {
+const ShoppingList = resolveModule<Model<IShoppingList>>(
+  require("../models/shoppingList")
+)
+
+interface ShoppingListItemInput {
+  _id?: string
+  foodId?: string
+  name: string
+  estimatedPrice?: number
+  quantity?: number | string
+  unit?: string
+  category?: string[]
+  categories?: string[]
+  calories?: number
+  price?: number
+  location?: string
+}
+
+interface CreateShoppingListBody {
+  name: string
+  description?: string
+  items: ShoppingListItemInput[]
+  totalEstimatedPrice?: number
+}
+
+const FOOD_ITEM_SELECT = "name category unit calories price image"
+
+const parseQuantity = (value: number | string | undefined): number => {
+  if (typeof value === "number") return value
+  const parsed = parseFloat(String(value))
+  return Number.isFinite(parsed) ? parsed : 1
+}
+
+const shoppingListAccessQuery = (
+  user: AuthenticatedRequest["user"],
+  listId: string
+) => ({
+  $and: [{ _id: listId }, getDataQuery(user)],
+})
+
+const mapShoppingListItem = (
+  item: ShoppingListItemInput
+): Partial<IShoppingListItem> => {
+  const parsedQuantity = parseQuantity(item.quantity)
+  const foodId = item.foodId || item._id
+
+  return {
+    ...(foodId ? { foodId: foodId as unknown as IShoppingListItem["foodId"] } : {}),
+    name: item.name,
+    estimatedPrice: item.estimatedPrice,
+    quantity: parsedQuantity,
+    unit: item.unit || "kpl",
+    category: item.category || item.categories || [],
+    calories: item.calories || 0,
+    price: item.price || 0,
+    bought: false,
+  }
+}
+
+const mergeFoodIdIntoItems = (list: {
+  items: Array<Record<string, unknown>>
+}) => {
+  list.items = list.items.map((item) => {
+    if (item.foodId && typeof item.foodId === "object") {
+      const foodId = item.foodId as {
+        image?: unknown
+        category?: string[]
+      }
+      return {
+        ...item,
+        image: foodId.image || item.image,
+        category: item.category || foodId.category,
+      }
+    }
+    return item
+  })
+  return list
+}
+
+exports.createShoppingList = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    CreateShoppingListBody
+  >,
+  res: Response
+) => {
   try {
     const { name, description, items, totalEstimatedPrice } = req.body
 
-    // Log incoming items to debug
+    if (!name || !Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and items are required",
+      })
+    }
 
     const ownership = getDataOwnership(req.user)
     const shoppingList = new ShoppingList({
@@ -19,101 +116,69 @@ exports.createShoppingList = async (req, res) => {
       household: ownership.household,
       name,
       description,
-      items: items.map((item) => {
-        // Set quantities based on location
-        const parsedQuantity =
-          typeof item.quantity === "number"
-            ? item.quantity
-            : parseFloat(item.quantity) || 1
-
-        const quantities = {
-          meal: 0,
-          "shopping-list":
-            item.location === "shopping-list" ? parsedQuantity : 0,
-          pantry: item.location === "pantry" ? parsedQuantity : 0,
-        }
-
-        return {
-          _id: item._id,
-          foodId: item.foodId || item._id,
-          name: item.name,
-          estimatedPrice: item.estimatedPrice,
-          quantity: parsedQuantity,
-          quantities: quantities,
-          unit: item.unit,
-          category: item.category || item.categories,
-          calories: item.calories,
-          price: item.price,
-          bought: false,
-        }
-      }),
+      items: items.map(mapShoppingListItem),
       totalEstimatedPrice,
     })
 
     await shoppingList.save()
 
     res.json({ success: true, shoppingList })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error creating shopping list:", error)
-    res.status(400).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.getShoppingLists = async (req, res) => {
+exports.getShoppingLists = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
   try {
     const query = getDataQuery(req.user)
     const shoppingLists = await ShoppingList.find(query)
       .populate({
         path: "items.foodId",
-        select: "name category unit calories price image",
+        select: FOOD_ITEM_SELECT,
       })
-      .sort({ createdAt: -1 }) // Most recent first
+      .sort({ createdAt: -1 })
 
-    // Merge foodId data into items for easier access
-    const processedLists = shoppingLists.map((list) => {
-      const listObj = list.toObject()
-      listObj.items = listObj.items.map((item) => {
-        if (item.foodId && typeof item.foodId === "object") {
-          // Merge foodId data, but keep item's own data as priority
-          return {
-            ...item,
-            image: item.foodId.image || item.image,
-            category: item.category || item.foodId.category,
-          }
-        }
-        return item
-      })
-      return listObj
-    })
+    const processedLists = shoppingLists.map((list) =>
+      mergeFoodIdIntoItems(
+        list.toObject() as unknown as { items: Array<Record<string, unknown>> }
+      )
+    )
 
     res.json({ success: true, shoppingLists: processedLists })
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.updateShoppingList = async (req, res) => {
+exports.updateShoppingList = async (
+  req: AuthenticatedRequest<
+    { id: string },
+    unknown,
+    { items?: ShoppingListItemInput[]; totalEstimatedPrice?: number }
+  >,
+  res: Response
+) => {
   try {
     const { id } = req.params
     const { items, totalEstimatedPrice } = req.body
+    const query = shoppingListAccessQuery(req.user, id)
 
-    // First, update the shopping list
     await ShoppingList.findOneAndUpdate(
-      { _id: id, userId: req.user._id },
+      query,
       {
-        items,
-        totalEstimatedPrice,
+        ...(items ? { items: items.map(mapShoppingListItem) } : {}),
+        ...(totalEstimatedPrice !== undefined ? { totalEstimatedPrice } : {}),
       },
       { new: true }
     )
 
-    // Then fetch it again with populate (this is more reliable for nested refs)
-    const shoppingList = await ShoppingList.findOne({
-      _id: id,
-      userId: req.user._id,
-    }).populate({
+    const shoppingList = await ShoppingList.findOne(query).populate({
       path: "items.foodId",
-      select: "name category unit calories price image",
+      select: FOOD_ITEM_SELECT,
     })
 
     if (!shoppingList) {
@@ -123,34 +188,29 @@ exports.updateShoppingList = async (req, res) => {
       })
     }
 
-    // Merge foodId data into items
-    const listObj = shoppingList.toObject()
-    listObj.items = listObj.items.map((item) => {
-      if (item.foodId && typeof item.foodId === "object") {
-        return {
-          ...item,
-          image: item.foodId.image || item.image,
-          category: item.category || item.foodId.category,
+    res.json({
+      success: true,
+      shoppingList: mergeFoodIdIntoItems(
+        shoppingList.toObject() as unknown as {
+          items: Array<Record<string, unknown>>
         }
-      }
-      return item
+      ),
     })
-
-    res.json({ success: true, shoppingList: listObj })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.markItemAsBought = async (req, res) => {
+exports.markItemAsBought = async (
+  req: AuthenticatedRequest<{ listId: string; itemId: string }>,
+  res: Response
+) => {
   try {
     const { listId, itemId } = req.params
 
-    // Find the shopping list
-    const shoppingList = await ShoppingList.findOne({
-      _id: listId,
-      userId: req.user._id,
-    })
+    const shoppingList = await ShoppingList.findOne(
+      shoppingListAccessQuery(req.user, listId)
+    )
 
     if (!shoppingList) {
       return res.status(404).json({
@@ -159,32 +219,23 @@ exports.markItemAsBought = async (req, res) => {
       })
     }
 
-    // Find the item in the shopping list
-    const itemIndex = shoppingList.items.findIndex(
-      (item) => item._id.toString() === itemId
+    const item = shoppingList.items.find(
+      (listItem) => listItem._id?.toString() === itemId
     )
 
-    if (itemIndex === -1) {
+    if (!item) {
       return res.status(404).json({
         success: false,
         message: "Item not found in shopping list",
       })
     }
 
-    const item = shoppingList.items[itemIndex]
-
-    // Mark item as bought
     item.bought = true
 
-    // Find or create pantry
-    let pantry = await Pantry.findOne({ userId: req.user._id })
-    if (!pantry) {
-      pantry = new Pantry({ userId: req.user._id, items: [] })
-    }
+    const pantry = await getCanonicalPantry(req.user)
 
-    // Add to pantry
-    const pantryItem = {
-      foodId: item.foodId || item._id, // Use existing foodId or item._id
+    pantry.items.push({
+      foodId: item.foodId,
       name: item.name,
       quantity: item.quantity || 1,
       unit: item.unit || "kpl",
@@ -193,17 +244,9 @@ exports.markItemAsBought = async (req, res) => {
       calories: item.calories || 0,
       price: item.price || item.estimatedPrice || 0,
       addedFrom: "shopping-list",
-    }
+    } as IPantryItem)
 
-    pantry.items.push(pantryItem)
-
-    // Save both documents
-    try {
-      await Promise.all([shoppingList.save(), pantry.save()])
-    } catch (saveError) {
-      console.error("Error saving documents:", saveError)
-      throw saveError
-    }
+    await Promise.all([shoppingList.save(), pantry.save()])
 
     res.json({
       success: true,
@@ -211,26 +254,37 @@ exports.markItemAsBought = async (req, res) => {
       shoppingList,
       pantry,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in markItemAsBought:", error)
     res.status(500).json({
       success: false,
-      error: error.message,
-      stack: error.stack,
+      error: getErrorMessage(error),
     })
   }
 }
 
-exports.addItemsToShoppingList = async (req, res) => {
+exports.addItemsToShoppingList = async (
+  req: AuthenticatedRequest<
+    { id: string },
+    unknown,
+    { items?: ShoppingListItemInput[] }
+  >,
+  res: Response
+) => {
   try {
     const { id } = req.params
     const { items } = req.body
 
-    // Find the shopping list
-    const shoppingList = await ShoppingList.findOne({
-      _id: id,
-      userId: req.user._id,
-    })
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Items are required",
+      })
+    }
+
+    const shoppingList = await ShoppingList.findOne(
+      shoppingListAccessQuery(req.user, id)
+    )
 
     if (!shoppingList) {
       return res.status(404).json({
@@ -239,74 +293,37 @@ exports.addItemsToShoppingList = async (req, res) => {
       })
     }
 
-    // Format new items to match schema structure
-    const newItems = items.map((item) => {
-      // Set quantities based on location
-      const parsedQuantity =
-        typeof item.quantity === "number"
-          ? item.quantity
-          : parseFloat(item.quantity) || 1
+    shoppingList.items.push(
+      ...(items.map(mapShoppingListItem) as IShoppingListItem[])
+    )
 
-      const quantities = {
-        meal: 0,
-        "shopping-list": item.location === "shopping-list" ? parsedQuantity : 0,
-        pantry: item.location === "pantry" ? parsedQuantity : 0,
-      }
-
-      return {
-        _id: item._id,
-        foodId: item.foodId || item._id,
-        name: item.name,
-        estimatedPrice: item.estimatedPrice || item.price || 0,
-        quantity: parsedQuantity,
-        quantities: quantities,
-        unit: item.unit || "kpl",
-        category: item.category || item.categories || [],
-        calories: item.calories || 0,
-        price: item.price || 0,
-        bought: false,
-      }
-    })
-
-    // Add new items to the shopping list
-    shoppingList.items.push(...newItems)
-
-    // Recalculate total estimated price
     shoppingList.totalEstimatedPrice = shoppingList.items.reduce(
       (total, item) => total + (item.estimatedPrice || 0),
       0
     )
 
-    // Save the updated shopping list
-    try {
-      await shoppingList.save()
-    } catch (saveError) {
-      console.error("Error saving shopping list:", saveError)
-      throw saveError
-    }
+    await shoppingList.save()
 
-    res.json({
-      success: true,
-      shoppingList,
-    })
-  } catch (error) {
+    res.json({ success: true, shoppingList })
+  } catch (error: unknown) {
     console.error("Error in addItemsToShoppingList:", error)
     res.status(500).json({
       success: false,
-      error: error.message,
-      stack: error.stack,
+      error: getErrorMessage(error),
     })
   }
 }
 
-exports.deleteShoppingList = async (req, res) => {
+exports.deleteShoppingList = async (
+  req: AuthenticatedRequest<{ id: string }>,
+  res: Response
+) => {
   try {
     const { id } = req.params
 
-    const shoppingList = await ShoppingList.findOneAndDelete({
-      _id: id,
-      userId: req.user._id,
-    })
+    const shoppingList = await ShoppingList.findOneAndDelete(
+      shoppingListAccessQuery(req.user, id)
+    )
 
     if (!shoppingList) {
       return res.status(404).json({
@@ -316,7 +333,7 @@ exports.deleteShoppingList = async (req, res) => {
     }
 
     res.json({ success: true, message: "Shopping list deleted successfully" })
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
