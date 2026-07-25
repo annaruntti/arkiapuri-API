@@ -1,14 +1,48 @@
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const openFoodFactsService = require("../services/openFoodFactsService")
-const FoodItem = resolveModel(require("../models/foodItem"))
-const Pantry = resolveModel(require("../models/pantry"))
-const ShoppingList = resolveModel(require("../models/shoppingList"))
-const Meal = resolveModel(require("../models/meal"))
+import { Request, Response } from "express"
+import type { Model } from "mongoose"
+import type { IFoodItem } from "../models/foodItem"
+import type { IUser } from "../models/user"
+import openFoodFactsService from "../services/openFoodFactsService"
+
+interface ModelModule<T> {
+  default?: T
+}
+
+type ResolvableModule<T> = ModelModule<T> | T | null | undefined
+
+const resolveModule = <T>(module: ResolvableModule<T>): T =>
+  (module as ModelModule<T>)?.default || (module as T)
+
+const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
+
+type AuthenticatedRequest<
+  P = Record<string, string>,
+  ResBody = unknown,
+  ReqBody = unknown,
+  ReqQuery = Record<string, unknown>
+> = Request<P, ResBody, ReqBody, ReqQuery> & { user: IUser }
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error"
+
+const asString = (value: unknown): string => {
+  if (typeof value === "string") return value
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0]
+  return ""
+}
+
+const asNumber = (value: unknown, fallback: number): number => {
+  const parsed = parseInt(asString(value) || String(value), 10)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
 
 /**
  * Search products by barcode
  */
-exports.searchByBarcode = async (req, res) => {
+exports.searchByBarcode = async (
+  req: Request<{ barcode: string }>,
+  res: Response
+) => {
   try {
     const { barcode } = req.params
 
@@ -19,7 +53,6 @@ exports.searchByBarcode = async (req, res) => {
       })
     }
 
-    // Validate barcode format
     if (!openFoodFactsService.isValidBarcode(barcode)) {
       return res.status(400).json({
         success: false,
@@ -42,12 +75,12 @@ exports.searchByBarcode = async (req, res) => {
       success: true,
       product,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in searchByBarcode:", error)
     res.status(500).json({
       success: false,
       message: "Failed to search product by barcode",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -55,9 +88,19 @@ exports.searchByBarcode = async (req, res) => {
 /**
  * Search products by text query
  */
-exports.searchByText = async (req, res) => {
+exports.searchByText = async (
+  req: Request<
+    Record<string, string>,
+    unknown,
+    unknown,
+    { q?: string; page?: string; limit?: string }
+  >,
+  res: Response
+) => {
   try {
-    const { q: query, page = 1, limit = 20 } = req.query
+    const query = asString(req.query.q)
+    const page = req.query.page
+    const limit = req.query.limit
 
     if (!query || query.trim().length < 2) {
       return res.status(400).json({
@@ -66,8 +109,8 @@ exports.searchByText = async (req, res) => {
       })
     }
 
-    const pageNum = parseInt(page) || 1
-    const pageSize = Math.min(parseInt(limit) || 20, 50) // Max 50 per page
+    const pageNum = asNumber(page, 1)
+    const pageSize = Math.min(asNumber(limit, 20), 50)
 
     const results = await openFoodFactsService.searchByText(
       query.trim(),
@@ -80,12 +123,12 @@ exports.searchByText = async (req, res) => {
       query: query.trim(),
       ...results,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in searchByText:", error)
     res.status(500).json({
       success: false,
       message: "Failed to search products by text",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -93,10 +136,18 @@ exports.searchByText = async (req, res) => {
 /**
  * Search products by category
  */
-exports.searchByCategory = async (req, res) => {
+exports.searchByCategory = async (
+  req: Request<
+    { category: string },
+    unknown,
+    unknown,
+    { page?: string; limit?: string }
+  >,
+  res: Response
+) => {
   try {
     const { category } = req.params
-    const { page = 1, limit = 20 } = req.query
+    const { page, limit } = req.query
 
     if (!category) {
       return res.status(400).json({
@@ -105,8 +156,8 @@ exports.searchByCategory = async (req, res) => {
       })
     }
 
-    const pageNum = parseInt(page) || 1
-    const pageSize = Math.min(parseInt(limit) || 20, 50)
+    const pageNum = asNumber(page, 1)
+    const pageSize = Math.min(asNumber(limit, 20), 50)
 
     const results = await openFoodFactsService.searchByCategory(
       category,
@@ -119,12 +170,12 @@ exports.searchByCategory = async (req, res) => {
       category,
       ...results,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in searchByCategory:", error)
     res.status(500).json({
       success: false,
       message: "Failed to search products by category",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -132,7 +183,7 @@ exports.searchByCategory = async (req, res) => {
 /**
  * Get popular categories
  */
-exports.getCategories = async (req, res) => {
+exports.getCategories = async (_req: Request, res: Response) => {
   try {
     const categories = await openFoodFactsService.getPopularCategories()
 
@@ -140,12 +191,12 @@ exports.getCategories = async (req, res) => {
       success: true,
       categories,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in getCategories:", error)
     res.status(500).json({
       success: false,
       message: "Failed to get categories",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -153,9 +204,18 @@ exports.getCategories = async (req, res) => {
 /**
  * Get product suggestions for autocomplete
  */
-exports.getSuggestions = async (req, res) => {
+exports.getSuggestions = async (
+  req: Request<
+    Record<string, string>,
+    unknown,
+    unknown,
+    { q?: string; limit?: string }
+  >,
+  res: Response
+) => {
   try {
-    const { q: query, limit = 10 } = req.query
+    const query = asString(req.query.q)
+    const limit = req.query.limit
 
     if (!query || query.trim().length < 2) {
       return res.json({
@@ -166,7 +226,7 @@ exports.getSuggestions = async (req, res) => {
 
     const suggestions = await openFoodFactsService.getProductSuggestions(
       query.trim(),
-      Math.min(parseInt(limit) || 10, 20)
+      Math.min(asNumber(limit, 10), 20)
     )
 
     res.json({
@@ -174,12 +234,12 @@ exports.getSuggestions = async (req, res) => {
       query: query.trim(),
       suggestions,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in getSuggestions:", error)
     res.status(500).json({
       success: false,
       message: "Failed to get product suggestions",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -187,7 +247,20 @@ exports.getSuggestions = async (req, res) => {
 /**
  * Add Open Food Facts product to user's food items
  */
-exports.addToFoodItems = async (req, res) => {
+exports.addToFoodItems = async (
+  req: AuthenticatedRequest<
+    { barcode: string },
+    unknown,
+    {
+      location?: string
+      quantity?: number | string
+      unit?: string
+      shoppingListId?: string | null
+      mealId?: string | null
+    }
+  >,
+  res: Response
+) => {
   try {
     const { barcode } = req.params
     const {
@@ -205,7 +278,6 @@ exports.addToFoodItems = async (req, res) => {
       })
     }
 
-    // Validate location
     if (!["meal", "shopping-list", "pantry"].includes(location)) {
       return res.status(400).json({
         success: false,
@@ -213,7 +285,6 @@ exports.addToFoodItems = async (req, res) => {
       })
     }
 
-    // First, get the product from Open Food Facts
     const cleanBarcode = openFoodFactsService.cleanBarcode(barcode)
     const offProduct = await openFoodFactsService.searchByBarcode(cleanBarcode)
 
@@ -224,16 +295,14 @@ exports.addToFoodItems = async (req, res) => {
       })
     }
 
-    // Check if the user already has this product
-    let existingFoodItem = await FoodItem.findOne({
+    const existingFoodItem = await FoodItem.findOne({
       user: req.user._id,
       name: offProduct.name,
-      // You might want to also check by barcode if you add it to the schema
     })
 
     if (existingFoodItem) {
-      // Update existing item quantity
-      existingFoodItem.quantities[location] += parseFloat(quantity)
+      existingFoodItem.quantities[location as keyof typeof existingFoodItem.quantities] +=
+        parseFloat(String(quantity))
       await existingFoodItem.save()
 
       return res.json({
@@ -244,7 +313,6 @@ exports.addToFoodItems = async (req, res) => {
       })
     }
 
-    // Create new food item from Open Food Facts data
     const foodItemData = {
       name: offProduct.name,
       category: [offProduct.mainCategory],
@@ -252,21 +320,20 @@ exports.addToFoodItems = async (req, res) => {
       calories: offProduct.nutrition.calories,
       user: req.user._id,
       quantities: {
-        meal: location === "meal" ? parseFloat(quantity) : 0,
+        meal: location === "meal" ? parseFloat(String(quantity)) : 0,
         "shopping-list":
-          location === "shopping-list" ? parseFloat(quantity) : 0,
-        pantry: location === "pantry" ? parseFloat(quantity) : 0,
+          location === "shopping-list" ? parseFloat(String(quantity)) : 0,
+        pantry: location === "pantry" ? parseFloat(String(quantity)) : 0,
       },
-      // Store Open Food Facts data for reference
       openFoodFactsData: {
         barcode: offProduct.barcode,
         brands: offProduct.brands,
         nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-          offProduct.nutritionGrade?.toLowerCase()
+          offProduct.nutritionGrade?.toLowerCase() ?? ""
         )
-          ? offProduct.nutritionGrade.toLowerCase()
+          ? offProduct.nutritionGrade!.toLowerCase()
           : undefined,
-        novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup)
+        novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup ?? -1)
           ? offProduct.novaGroup
           : undefined,
         imageUrl: offProduct.imageUrl,
@@ -280,28 +347,26 @@ exports.addToFoodItems = async (req, res) => {
     const foodItem = new FoodItem(foodItemData)
     await foodItem.save()
 
-    // Return the food item so frontend can handle collection addition
     res.json({
       success: true,
       message: "Product added from Open Food Facts",
       foodItem,
       fromOpenFoodFacts: true,
       openFoodFactsData: offProduct,
-      // Include data needed for frontend to add to collections
       collectionData: {
         location,
-        quantity: parseFloat(quantity),
+        quantity: parseFloat(String(quantity)),
         unit,
         shoppingListId,
         mealId,
       },
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in addToFoodItems:", error)
     res.status(500).json({
       success: false,
       message: "Failed to add product to food items",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
@@ -309,7 +374,14 @@ exports.addToFoodItems = async (req, res) => {
 /**
  * Enrich existing food item with Open Food Facts data
  */
-exports.enrichFoodItem = async (req, res) => {
+exports.enrichFoodItem = async (
+  req: AuthenticatedRequest<
+    { foodItemId: string },
+    unknown,
+    { barcode?: string }
+  >,
+  res: Response
+) => {
   try {
     const { foodItemId } = req.params
     const { barcode } = req.body
@@ -321,7 +393,6 @@ exports.enrichFoodItem = async (req, res) => {
       })
     }
 
-    // Find the food item
     const foodItem = await FoodItem.findOne({
       _id: foodItemId,
       user: req.user._id,
@@ -334,7 +405,6 @@ exports.enrichFoodItem = async (req, res) => {
       })
     }
 
-    // Get Open Food Facts data
     const cleanBarcode = openFoodFactsService.cleanBarcode(barcode)
     const offProduct = await openFoodFactsService.searchByBarcode(cleanBarcode)
 
@@ -345,7 +415,6 @@ exports.enrichFoodItem = async (req, res) => {
       })
     }
 
-    // Update food item with Open Food Facts data
     foodItem.calories = offProduct.nutrition.calories || foodItem.calories
     foodItem.category = [
       ...new Set([...foodItem.category, offProduct.mainCategory]),
@@ -353,9 +422,20 @@ exports.enrichFoodItem = async (req, res) => {
     foodItem.openFoodFactsData = {
       barcode: offProduct.barcode,
       brands: offProduct.brands,
-      nutritionGrade: offProduct.nutritionGrade,
-      novaGroup: offProduct.novaGroup,
-      imageUrl: offProduct.imageUrl,
+      nutritionGrade: ["a", "b", "c", "d", "e"].includes(
+        offProduct.nutritionGrade?.toLowerCase() ?? ""
+      )
+        ? (offProduct.nutritionGrade!.toLowerCase() as
+            | "a"
+            | "b"
+            | "c"
+            | "d"
+            | "e")
+        : undefined,
+      novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup ?? -1)
+        ? (offProduct.novaGroup as 1 | 2 | 3 | 4)
+        : undefined,
+      imageUrl: offProduct.imageUrl ?? undefined,
       nutrition: offProduct.nutrition,
       labels: offProduct.labels,
       allergens: offProduct.allergens,
@@ -370,12 +450,12 @@ exports.enrichFoodItem = async (req, res) => {
       foodItem,
       openFoodFactsData: offProduct,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in enrichFoodItem:", error)
     res.status(500).json({
       success: false,
       message: "Failed to enrich food item",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }

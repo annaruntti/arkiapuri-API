@@ -1,96 +1,237 @@
-const resolveModel = (modelModule) => modelModule?.default || modelModule
-const FoodItem = resolveModel(require("../models/foodItem"))
-const User = resolveModel(require("../models/user"))
-const Pantry = resolveModel(require("../models/pantry"))
-const ShoppingList = resolveModel(require("../models/shoppingList"))
-const cloudinary = require("../helper/imageUpload")
-const fs = require("fs")
+import { Request, Response } from "express"
+import type { FilterQuery, Model } from "mongoose"
+import cloudinary from "../helper/imageUpload"
+import fs from "fs"
+import type { IFoodItem, FoodLocation } from "../models/foodItem"
+import type { IPantry, IPantryItem } from "../models/pantry"
+import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
+import type { IUser, IUserModel } from "../models/user"
 
-exports.createFoodItem = async (req, res) => {
+interface ModelModule<T> {
+  default?: T
+}
+
+type ResolvableModelModule<T> = ModelModule<T> | T | null | undefined
+
+const resolveModel = <T>(modelModule: ResolvableModelModule<T>): T =>
+  (modelModule as ModelModule<T>)?.default || (modelModule as T)
+
+const FoodItem = resolveModel<Model<IFoodItem>>(require("../models/foodItem"))
+const User = resolveModel<IUserModel>(require("../models/user"))
+const Pantry = resolveModel<Model<IPantry>>(require("../models/pantry"))
+const ShoppingList = resolveModel<Model<IShoppingList>>(
+  require("../models/shoppingList")
+)
+
+type AuthenticatedRequest<
+  P = Record<string, string>,
+  ResBody = unknown,
+  ReqBody = unknown,
+  ReqQuery = Record<string, unknown>
+> = Request<P, ResBody, ReqBody, ReqQuery> & { user: IUser }
+
+interface FoodItemQuantitiesInput {
+  meal?: string | number
+  "shopping-list"?: string | number
+  pantry?: string | number
+}
+
+interface CreateFoodItemBody {
+  name: string
+  category?: string[]
+  price?: number
+  calories?: number
+  location?: FoodLocation
+  locations?: FoodLocation[]
+  expirationDate?: string | Date | null
+  unit?: string
+  quantities?: FoodItemQuantitiesInput
+}
+
+interface UpdateFoodItemBody {
+  name?: string
+  category?: string[]
+  unit?: string
+  price?: number
+  calories?: number
+  locations?: FoodLocation[]
+  quantities?: IFoodItem["quantities"]
+  expirationDate?: string | Date | null
+}
+
+interface FindOrCreateFoodItemBody {
+  name: string
+  category?: string[]
+  unit?: string
+  price?: number
+  calories?: number
+  location?: FoodLocation
+  quantities?: FoodItemQuantitiesInput
+}
+
+type UpdateQuantityAction = "add" | "subtract" | "set"
+
+interface UpdateQuantityBody {
+  location: FoodLocation
+  quantity: number
+  action?: UpdateQuantityAction
+}
+
+interface MoveItemBody {
+  fromLocation: FoodLocation
+  toLocation: FoodLocation
+  quantity: number
+}
+
+interface CheckItemAvailabilityBody {
+  name?: string
+}
+
+interface CloudinaryUploadResult {
+  secure_url: string
+  public_id: string
+}
+
+interface FoodItemApiResponse {
+  success: boolean
+  foodItem?: IFoodItem | null
+  foodItems?: IFoodItem[]
+  message?: string
+  error?: string
+  isExisting?: boolean
+  inPantry?: boolean
+  pantryQuantity?: number
+  inShoppingList?: boolean
+  shoppingListQuantity?: number
+  shoppingListId?: IShoppingList["_id"] | null
+  hasMatchingFoodItem?: boolean
+  matchingFoodItems?: Array<{
+    _id: IFoodItem["_id"]
+    name: string
+    quantities: IFoodItem["quantities"]
+  }>
+}
+
+type PopulatedFoodRef = Pick<IFoodItem, "_id" | "name">
+
+const FOOD_LOCATIONS: FoodLocation[] = ["meal", "shopping-list", "pantry"]
+
+const parseQuantity = (value: string | number | undefined): number => {
+  if (value === undefined) return 0
+  const parsed = typeof value === "number" ? value : parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const buildQuantitiesFromBody = (
+  body: CreateFoodItemBody
+): IFoodItem["quantities"] => {
+  if (body.quantities) {
+    return {
+      meal: parseQuantity(body.quantities.meal),
+      "shopping-list": parseQuantity(body.quantities["shopping-list"]),
+      pantry: parseQuantity(body.quantities.pantry),
+    }
+  }
+
+  return { meal: 0, "shopping-list": 0, pantry: 0 }
+}
+
+const resolveLocationsFromBody = (body: {
+  locations?: FoodLocation[]
+  location?: FoodLocation
+}): FoodLocation[] => {
+  if (body.locations?.length) return body.locations
+  if (body.location) return [body.location]
+  return ["meal"]
+}
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error"
+
+const getPopulatedFoodName = (
+  foodId: PopulatedFoodRef | undefined | null
+): string | null => {
+  if (!foodId || typeof foodId !== "object" || !("name" in foodId)) {
+    return null
+  }
+  return foodId.name
+}
+
+exports.createFoodItem = async (
+  req: AuthenticatedRequest<Record<string, string>, FoodItemApiResponse, CreateFoodItemBody>,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const {
       name,
       category,
-      quantity,
       price,
       calories,
-      location,
-      listId,
       expirationDate,
       unit,
-      quantities: requestQuantities,
-      locations,
+      quantities: _quantities,
+      locations: _locations,
+      location: _location,
     } = req.body
 
     const foodItem = new FoodItem({
       name,
-      category,
-      quantity,
+      category: category || [],
       price,
       calories,
       user: req.user._id,
-      location: location,
-      listId: listId || null,
       expirationDate,
-      locations: locations || ["meal"],
-      quantities: {
-        meal:
-          location === "meal"
-            ? parseFloat(quantity) || 0
-            : parseFloat(requestQuantities?.meal) || 0,
-        "shopping-list":
-          location === "shopping-list"
-            ? parseFloat(quantity) || 0
-            : parseFloat(requestQuantities?.["shopping-list"]) || 0,
-        pantry:
-          location === "pantry"
-            ? parseFloat(quantity) || 0
-            : parseFloat(requestQuantities?.pantry) || 0,
-      },
-      unit,
+      locations: resolveLocationsFromBody(req.body),
+      quantities: buildQuantitiesFromBody(req.body),
+      unit: unit || "kpl",
     })
 
     await foodItem.save()
 
-    // Add reference to user's foodItems
     await User.findByIdAndUpdate(req.user._id, {
       $push: { foodItems: foodItem._id },
     })
 
     res.json({ success: true, foodItem })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error creating food item:", error)
-    res.status(400).json({ success: false, error: error.message })
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.getFoodItems = async (req, res) => {
+exports.getFoodItems = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    FoodItemApiResponse,
+    unknown,
+    { location?: string | string[] }
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { location } = req.query
-    const query: any = { user: req.user._id }
+    const query: FilterQuery<IFoodItem> = { user: req.user._id }
 
-    // Filter by location if provided
     if (location) {
-      query.location = location
+      const locations = Array.isArray(location) ? location : [location]
+      query.locations = { $in: locations }
     }
 
     const foodItems = await FoodItem.find(query)
     res.json({ success: true, foodItems })
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.getFoodItemById = async (req, res) => {
-  try {
-    const foodItem = await FoodItem.findById(req.params.id)
-    res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(404).json({ success: false, error: error.message })
-  }
-}
-
-exports.updateFoodItem = async (req, res) => {
+exports.updateFoodItem = async (
+  req: AuthenticatedRequest<
+    { id: string },
+    FoodItemApiResponse,
+    UpdateFoodItemBody
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const foodItem = await FoodItem.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
@@ -106,12 +247,15 @@ exports.updateFoodItem = async (req, res) => {
     }
 
     res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-exports.deleteFoodItem = async (req, res) => {
+exports.deleteFoodItem = async (
+  req: AuthenticatedRequest<{ id: string }>,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const foodItem = await FoodItem.findOneAndDelete({
       _id: req.params.id,
@@ -125,139 +269,29 @@ exports.deleteFoodItem = async (req, res) => {
       })
     }
 
-    // Remove reference from user's foodItems array
     await User.findByIdAndUpdate(req.user._id, {
       $pull: { foodItems: req.params.id },
     })
 
     res.json({ success: true, message: "Food item deleted successfully" })
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
+  } catch (error: unknown) {
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
 
-// Helper method to move items between locations
-exports.moveFoodItem = async (req, res) => {
-  try {
-    const { id } = req.params
-    const { location, listId, expirationDate } = req.body
-
-    const foodItem = await FoodItem.findOneAndUpdate(
-      { _id: id, user: req.user._id },
-      {
-        location,
-        listId: listId || null,
-        expirationDate: location === "pantry" ? expirationDate : null,
-      },
-      { new: true }
-    )
-
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found or unauthorized",
-      })
-    }
-
-    res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-// When adding to meal plan
-exports.addToMeal = async (req, res) => {
-  try {
-    const { foodItemId, quantity } = req.body
-
-    const foodItem = await FoodItem.findById(foodItemId)
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found",
-      })
-    }
-
-    // Update meal quantity
-    foodItem.quantities.meal += quantity
-    await foodItem.save()
-
-    res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-// When adding to shopping list
-exports.addToShoppingList = async (req, res) => {
-  try {
-    const { foodItemId, quantity } = req.body
-
-    const foodItem = await FoodItem.findById(foodItemId)
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found",
-      })
-    }
-
-    // Update shopping list quantity
-    foodItem.quantities["shopping-list"] += quantity
-    await foodItem.save()
-
-    res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-// When moving from shopping list to pantry
-exports.moveToShoppingListToPantry = async (req, res) => {
-  try {
-    const { foodItemId, quantity } = req.body
-
-    const foodItem = await FoodItem.findById(foodItemId)
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found",
-      })
-    }
-
-    // Decrease shopping list quantity and increase pantry quantity
-    foodItem.quantities["shopping-list"] -= quantity
-    foodItem.quantities.pantry += quantity
-    await foodItem.save()
-
-    res.json({ success: true, foodItem })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-// Get food items by location
-exports.getFoodItemsByLocation = async (req, res) => {
-  try {
-    const { location } = req.params
-
-    const foodItems = await FoodItem.find({
-      user: req.user._id,
-      locations: location,
-      [`quantities.${location}`]: { $gt: 0 },
-    })
-
-    res.json({ success: true, foodItems })
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message })
-  }
-}
-
-exports.updateQuantity = async (req, res) => {
+exports.updateQuantity = async (
+  req: AuthenticatedRequest<
+    { foodItemId: string },
+    FoodItemApiResponse,
+    UpdateQuantityBody
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { foodItemId } = req.params
     const { location, quantity, action = "set" } = req.body
 
-    if (!["meal", "shopping-list", "pantry"].includes(location)) {
+    if (!FOOD_LOCATIONS.includes(location)) {
       return res.status(400).json({
         success: false,
         message: "Invalid location",
@@ -276,7 +310,6 @@ exports.updateQuantity = async (req, res) => {
       })
     }
 
-    // Handle different quantity update actions
     switch (action) {
       case "add":
         foodItem.quantities[location] += quantity
@@ -304,23 +337,29 @@ exports.updateQuantity = async (req, res) => {
       foodItem,
       message: `Quantity ${action}ed in ${location}`,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(400).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Route to move items between locations
-exports.moveItem = async (req, res) => {
+exports.moveItem = async (
+  req: AuthenticatedRequest<
+    { foodItemId: string },
+    FoodItemApiResponse,
+    MoveItemBody
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { foodItemId } = req.params
     const { fromLocation, toLocation, quantity } = req.body
 
     if (
-      !["meal", "shopping-list", "pantry"].includes(fromLocation) ||
-      !["meal", "shopping-list", "pantry"].includes(toLocation)
+      !FOOD_LOCATIONS.includes(fromLocation) ||
+      !FOOD_LOCATIONS.includes(toLocation)
     ) {
       return res.status(400).json({
         success: false,
@@ -340,7 +379,6 @@ exports.moveItem = async (req, res) => {
       })
     }
 
-    // Check is there enough quantity in source location
     if (foodItem.quantities[fromLocation] < quantity) {
       return res.status(400).json({
         success: false,
@@ -348,7 +386,6 @@ exports.moveItem = async (req, res) => {
       })
     }
 
-    // Move quantity between locations
     foodItem.quantities[fromLocation] -= quantity
     foodItem.quantities[toLocation] += quantity
 
@@ -359,16 +396,20 @@ exports.moveItem = async (req, res) => {
       foodItem,
       message: `Moved ${quantity} from ${fromLocation} to ${toLocation}`,
     })
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(400).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Upload food item image
-exports.uploadFoodItemImage = async (req, res) => {
+exports.uploadFoodItemImage = async (
+  req: AuthenticatedRequest<{ foodItemId: string }> & {
+    file?: Express.Multer.File
+  },
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -379,7 +420,6 @@ exports.uploadFoodItemImage = async (req, res) => {
 
     const { foodItemId } = req.params
 
-    // Find the food item and check if it belongs to the user
     const foodItem = await FoodItem.findOne({
       _id: foodItemId,
       user: req.user._id,
@@ -392,7 +432,6 @@ exports.uploadFoodItemImage = async (req, res) => {
       })
     }
 
-    // Check Cloudinary credentials
     if (
       !process.env.CLOUDINARY_USER_NAME ||
       !process.env.CLOUDINARY_API_KEY ||
@@ -405,13 +444,14 @@ exports.uploadFoodItemImage = async (req, res) => {
     }
 
     try {
-      // Upload to Cloudinary
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "food-item-images",
-        use_filename: true,
-      })
+      const result: CloudinaryUploadResult = await cloudinary.uploader.upload(
+        req.file.path,
+        {
+          folder: "food-item-images",
+          use_filename: true,
+        }
+      )
 
-      // Update food item with image
       const updatedFoodItem = await FoodItem.findByIdAndUpdate(
         foodItemId,
         {
@@ -423,32 +463,36 @@ exports.uploadFoodItemImage = async (req, res) => {
         { new: true }
       )
 
-      // Clean up the uploaded file
       fs.unlinkSync(req.file.path)
 
       res.json({
         success: true,
         foodItem: updatedFoodItem,
       })
-    } catch (uploadError) {
-      // Clean up the uploaded file in case of error
+    } catch (uploadError: unknown) {
       if (req.file.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)
       }
       throw uploadError
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Upload error:", error)
     res.status(500).json({
       success: false,
       message: "Image upload failed",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Find or create food item with name matching (fuzzy matching)
-exports.findOrCreateFoodItem = async (req, res) => {
+exports.findOrCreateFoodItem = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    FoodItemApiResponse,
+    FindOrCreateFoodItemBody
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { name, category, unit, price, calories, location, quantities } =
       req.body
@@ -460,8 +504,7 @@ exports.findOrCreateFoodItem = async (req, res) => {
       })
     }
 
-    // Normalize name for comparison (lowercase, trim, remove extra spaces)
-    const normalizeName = (str) =>
+    const normalizeName = (str: string): string =>
       str
         .toLowerCase()
         .trim()
@@ -470,8 +513,7 @@ exports.findOrCreateFoodItem = async (req, res) => {
 
     const normalizedSearchName = normalizeName(name)
 
-    // First try exact match (case-insensitive)
-    let existingFoodItem = await FoodItem.findOne({
+    let existingFoodItem: IFoodItem | null = await FoodItem.findOne({
       user: req.user._id,
       $expr: {
         $eq: [
@@ -481,21 +523,18 @@ exports.findOrCreateFoodItem = async (req, res) => {
       },
     })
 
-    // If no exact match, try fuzzy matching (similar names)
     if (!existingFoodItem) {
-      const allFoodItems = await FoodItem.find({ user: req.user._id })
-      const threshold = 0.8 // 80% similarity threshold
+      const allFoodItems: IFoodItem[] = await FoodItem.find({
+        user: req.user._id,
+      })
+      const threshold = 0.8
 
-      // Simple Levenshtein-like similarity check
-      const calculateSimilarity = (str1, str2) => {
+      const calculateSimilarity = (str1: string, str2: string): number => {
         const longer = str1.length > str2.length ? str1 : str2
         const shorter = str1.length > str2.length ? str2 : str1
         if (longer.length === 0) return 1.0
-
-        // Check if one string contains the other
         if (longer.includes(shorter)) return 0.9
 
-        // Simple character-based similarity
         let matches = 0
         for (let i = 0; i < shorter.length; i++) {
           if (longer.includes(shorter[i])) matches++
@@ -517,23 +556,20 @@ exports.findOrCreateFoodItem = async (req, res) => {
       }
     }
 
-    // If found existing item, update it and return
     if (existingFoodItem) {
-      // Update quantities if provided
       if (quantities) {
-        Object.keys(quantities).forEach((loc) => {
-          if (["meal", "shopping-list", "pantry"].includes(loc)) {
+        for (const loc of FOOD_LOCATIONS) {
+          if (quantities[loc] !== undefined) {
             existingFoodItem.quantities[loc] =
               (existingFoodItem.quantities[loc] || 0) +
-              (parseFloat(quantities[loc]) || 0)
+              parseQuantity(quantities[loc])
           }
-        })
+        }
       }
 
-      // Update other fields if provided
-      if (category && Array.isArray(category)) {
+      if (category?.length) {
         existingFoodItem.category = [
-          ...new Set([...existingFoodItem.category, ...category]),
+          ...new Set([...(existingFoodItem.category || []), ...category]),
         ]
       }
       if (unit) existingFoodItem.unit = unit
@@ -550,7 +586,6 @@ exports.findOrCreateFoodItem = async (req, res) => {
             : calories
       }
 
-      // Update locations
       if (location && !existingFoodItem.locations.includes(location)) {
         existingFoodItem.locations.push(location)
       }
@@ -565,7 +600,6 @@ exports.findOrCreateFoodItem = async (req, res) => {
       })
     }
 
-    // Create new food item if not found
     const foodItem = new FoodItem({
       name,
       category: category || [],
@@ -574,16 +608,21 @@ exports.findOrCreateFoodItem = async (req, res) => {
       calories: calories || 0,
       user: req.user._id,
       locations: location ? [location] : ["meal"],
-      quantities: quantities || {
-        meal: location === "meal" ? 1 : 0,
-        "shopping-list": location === "shopping-list" ? 1 : 0,
-        pantry: location === "pantry" ? 1 : 0,
-      },
+      quantities: quantities
+        ? {
+            meal: parseQuantity(quantities.meal),
+            "shopping-list": parseQuantity(quantities["shopping-list"]),
+            pantry: parseQuantity(quantities.pantry),
+          }
+        : {
+            meal: location === "meal" ? 1 : 0,
+            "shopping-list": location === "shopping-list" ? 1 : 0,
+            pantry: location === "pantry" ? 1 : 0,
+          },
     })
 
     await foodItem.save()
 
-    // Add reference to user's foodItems
     await User.findByIdAndUpdate(req.user._id, {
       $push: { foodItems: foodItem._id },
     })
@@ -594,17 +633,23 @@ exports.findOrCreateFoodItem = async (req, res) => {
       isExisting: false,
       message: "Created new food item",
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error in findOrCreateFoodItem:", error)
     res.status(400).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Check if food item exists in pantry or shopping list
-exports.checkItemAvailability = async (req, res) => {
+exports.checkItemAvailability = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    FoodItemApiResponse,
+    CheckItemAvailabilityBody
+  >,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { name } = req.body
 
@@ -615,8 +660,7 @@ exports.checkItemAvailability = async (req, res) => {
       })
     }
 
-    // Normalize name for comparison
-    const normalizeName = (str) =>
+    const normalizeName = (str: string): string =>
       str
         .toLowerCase()
         .trim()
@@ -625,13 +669,13 @@ exports.checkItemAvailability = async (req, res) => {
 
     const normalizedSearchName = normalizeName(name)
 
-    // Find food items with similar names
-    const allFoodItems = await FoodItem.find({ user: req.user._id })
-    const matchingItems = []
+    const allFoodItems: IFoodItem[] = await FoodItem.find({
+      user: req.user._id,
+    })
+    const matchingItems: IFoodItem[] = []
 
     for (const item of allFoodItems) {
       const normalizedItemName = normalizeName(item.name)
-      // Check exact match or if one contains the other
       if (
         normalizedItemName === normalizedSearchName ||
         normalizedItemName.includes(normalizedSearchName) ||
@@ -641,80 +685,66 @@ exports.checkItemAvailability = async (req, res) => {
       }
     }
 
-    // Check pantry
     const pantry = await Pantry.findOne({
       userId: req.user._id,
-    }).populate("items.foodId")
+    }).populate<{ items: Array<Omit<IPantryItem, "foodId"> & { foodId?: PopulatedFoodRef | null }> }>(
+      "items.foodId",
+      "name"
+    )
 
     let inPantry = false
     let pantryQuantity = 0
-    if (pantry && pantry.items) {
+    if (pantry?.items) {
       for (const pantryItem of pantry.items) {
-        if (pantryItem.foodId) {
-          const pantryItemName = normalizeName(pantryItem.foodId.name)
-          if (
-            pantryItemName === normalizedSearchName ||
-            pantryItemName.includes(normalizedSearchName) ||
-            normalizedSearchName.includes(pantryItemName)
-          ) {
-            inPantry = true
-            pantryQuantity = pantryItem.quantity || 0
-            break
-          }
-        } else if (pantryItem.name) {
-          const pantryItemName = normalizeName(pantryItem.name)
-          if (
-            pantryItemName === normalizedSearchName ||
-            pantryItemName.includes(normalizedSearchName) ||
-            normalizedSearchName.includes(pantryItemName)
-          ) {
-            inPantry = true
-            pantryQuantity = pantryItem.quantity || 0
-            break
-          }
+        const populatedName = getPopulatedFoodName(pantryItem.foodId)
+        const itemName = populatedName ?? pantryItem.name
+        const pantryItemName = normalizeName(itemName)
+
+        if (
+          pantryItemName === normalizedSearchName ||
+          pantryItemName.includes(normalizedSearchName) ||
+          normalizedSearchName.includes(pantryItemName)
+        ) {
+          inPantry = true
+          pantryQuantity = pantryItem.quantity || 0
+          break
         }
       }
     }
 
-    // Check shopping lists
     const shoppingLists = await ShoppingList.find({
       userId: req.user._id,
-    }).populate("items.foodId")
+    }).populate<{
+      items: Array<
+        Omit<IShoppingListItem, "foodId"> & { foodId?: PopulatedFoodRef | null }
+      >
+    }>("items.foodId", "name")
 
     let inShoppingList = false
     let shoppingListQuantity = 0
-    let shoppingListId = null
+    let shoppingListId: IShoppingList["_id"] | null = null
+
     for (const list of shoppingLists) {
-      if (list.items) {
-        for (const listItem of list.items) {
-          if (listItem.foodId) {
-            const listItemName = normalizeName(listItem.foodId.name)
-            if (
-              listItemName === normalizedSearchName ||
-              listItemName.includes(normalizedSearchName) ||
-              normalizedSearchName.includes(listItemName)
-            ) {
-              inShoppingList = true
-              shoppingListQuantity = listItem.quantity || 0
-              shoppingListId = list._id
-              break
-            }
-          } else if (listItem.name) {
-            const listItemName = normalizeName(listItem.name)
-            if (
-              listItemName === normalizedSearchName ||
-              listItemName.includes(normalizedSearchName) ||
-              normalizedSearchName.includes(listItemName)
-            ) {
-              inShoppingList = true
-              shoppingListQuantity = listItem.quantity || 0
-              shoppingListId = list._id
-              break
-            }
-          }
+      if (!list.items) continue
+
+      for (const listItem of list.items) {
+        const populatedName = getPopulatedFoodName(listItem.foodId)
+        const itemName = populatedName ?? listItem.name
+        const listItemName = normalizeName(itemName)
+
+        if (
+          listItemName === normalizedSearchName ||
+          listItemName.includes(normalizedSearchName) ||
+          normalizedSearchName.includes(listItemName)
+        ) {
+          inShoppingList = true
+          shoppingListQuantity = listItem.quantity || 0
+          shoppingListId = list._id
+          break
         }
-        if (inShoppingList) break
       }
+
+      if (inShoppingList) break
     }
 
     res.json({
@@ -731,25 +761,27 @@ exports.checkItemAvailability = async (req, res) => {
         quantities: item.quantities,
       })),
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Error checking item availability:", error)
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
 
-// Remove food item image
-exports.removeFoodItemImage = async (req, res) => {
+exports.removeFoodItemImage = async (
+  req: AuthenticatedRequest<{ foodItemId: string }>,
+  res: Response<FoodItemApiResponse>
+) => {
   try {
     const { foodItemId } = req.params
 
-    // Find the food item and check if it belongs to the user
     const foodItem = await FoodItem.findOne({
       _id: foodItemId,
       user: req.user._id,
     })
+
     if (!foodItem) {
       return res.status(404).json({
         success: false,
@@ -757,15 +789,13 @@ exports.removeFoodItemImage = async (req, res) => {
       })
     }
 
-    // Check if food item has an image
-    if (!foodItem.image || !foodItem.image.publicId) {
+    if (!foodItem.image?.publicId) {
       return res.status(400).json({
         success: false,
         message: "No image to remove",
       })
     }
 
-    // Check Cloudinary credentials
     if (
       !process.env.CLOUDINARY_USER_NAME ||
       !process.env.CLOUDINARY_API_KEY ||
@@ -778,15 +808,11 @@ exports.removeFoodItemImage = async (req, res) => {
     }
 
     try {
-      // Delete from Cloudinary
       await cloudinary.uploader.destroy(foodItem.image.publicId)
 
-      // Update food item to remove image
       const updatedFoodItem = await FoodItem.findByIdAndUpdate(
         foodItemId,
-        {
-          $unset: { image: 1 },
-        },
+        { $unset: { image: 1 } },
         { new: true }
       )
 
@@ -794,16 +820,16 @@ exports.removeFoodItemImage = async (req, res) => {
         success: true,
         foodItem: updatedFoodItem,
       })
-    } catch (deleteError) {
+    } catch (deleteError: unknown) {
       console.error("Error deleting from Cloudinary:", deleteError)
       throw deleteError
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("Remove image error:", error)
     res.status(500).json({
       success: false,
       message: "Image removal failed",
-      error: error.message,
+      error: getErrorMessage(error),
     })
   }
 }
