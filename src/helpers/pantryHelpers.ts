@@ -57,10 +57,13 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
   for (const item of pantry.items) {
     const nameKey = pantryItemMergeKey(getItemName(item))
     const foodId = getFoodIdString(item)
+    const itemUnit = normalizeAppUnit(item.unit)
+    // Include unit so e.g. "1 kpl" and "500 g" of the same product are not
+    // summed into a nonsense amount like "501 kpl".
     const key = nameKey
-      ? `name:${nameKey}`
+      ? `name:${nameKey}:unit:${itemUnit}`
       : foodId
-        ? `food:${foodId}`
+        ? `food:${foodId}:unit:${itemUnit}`
         : `id:${String(item._id)}`
 
     const existing = groups.get(key)
@@ -69,13 +72,13 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
         primary: item,
         quantity: Number(item.quantity) || 0,
         expirationDate: item.expirationDate,
-        unit: normalizeAppUnit(item.unit),
+        unit: itemUnit,
       })
       continue
     }
 
     existing.quantity += Number(item.quantity) || 0
-    existing.unit = normalizeAppUnit(existing.unit || item.unit)
+    existing.unit = itemUnit
     if (
       item.expirationDate &&
       (!existing.expirationDate ||
@@ -161,10 +164,11 @@ export const mergeProcessedPantryItems = <
         : item.foodId
           ? String(item.foodId)
           : ""
+    const itemUnit = normalizeAppUnit(item.unit)
     const key = nameKey
-      ? `name:${nameKey}`
+      ? `name:${nameKey}:unit:${itemUnit}`
       : foodId
-        ? `food:${foodId}`
+        ? `food:${foodId}:unit:${itemUnit}`
         : `row:${groups.size}`
 
     const existing = groups.get(key)
@@ -172,7 +176,7 @@ export const mergeProcessedPantryItems = <
       groups.set(key, {
         ...item,
         name: item.name || foodName,
-        unit: normalizeAppUnit(item.unit),
+        unit: itemUnit,
       })
       continue
     }
@@ -186,7 +190,7 @@ export const mergeProcessedPantryItems = <
       name: preferSpacedName ? nextName : existing.name,
       quantity:
         (Number(existing.quantity) || 0) + (Number(item.quantity) || 0),
-      unit: normalizeAppUnit(existing.unit || item.unit),
+      unit: itemUnit,
       expirationDate:
         item.expirationDate &&
         (!existing.expirationDate ||

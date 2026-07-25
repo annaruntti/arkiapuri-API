@@ -291,19 +291,27 @@ exports.addToFoodItems = async (
     })
 
     const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
-    const usesDefaultUnit = !unit || unit === "pcs" || unit === "kpl"
+    // Client search hits often lack product_quantity and misparse labels like
+    // "4 kpl, 350 g" as 4 kpl. This endpoint re-fetches by barcode, so its
+    // mapped package size is authoritative whenever the client only sent a
+    // default piece unit (kpl/pcs) while OFF has a real mass/volume package.
+    const clientSentDefaultUnit = !unit || unit === "pcs" || unit === "kpl"
     const requestedQuantity = parseFloat(String(quantity))
-    const usesDefaultQuantity =
-      !Number.isFinite(requestedQuantity) || requestedQuantity === 1
-    const normalizedUnit = usesDefaultUnit
+    const hasValidRequestedQuantity =
+      Number.isFinite(requestedQuantity) && requestedQuantity > 0
+    const preferOffPackage =
+      clientSentDefaultUnit &&
+      (mapped.unit !== "kpl" ||
+        !hasValidRequestedQuantity ||
+        requestedQuantity === 1)
+    const normalizedUnit = preferOffPackage
       ? mapped.unit
       : normalizeAppUnit(unit)
-    const parsedQuantity =
-      usesDefaultUnit && usesDefaultQuantity
-        ? mapped.packageQuantity
-        : Number.isFinite(requestedQuantity) && requestedQuantity > 0
-          ? requestedQuantity
-          : 1
+    const parsedQuantity = preferOffPackage
+      ? mapped.packageQuantity
+      : hasValidRequestedQuantity
+        ? requestedQuantity
+        : mapped.packageQuantity || 1
 
     if (existingFoodItem) {
       existingFoodItem.quantities[

@@ -82,12 +82,13 @@ exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
           item.foodId && typeof item.foodId === "object"
             ? (item.foodId as unknown as Partial<IFoodItem>)
             : {}
-        const unit = foodItemData.unit || item.unit || "kpl"
+        // Prefer the pantry row's own unit — foodItem.unit may be a package
+        // default (e.g. g) while the row stores what the user bought (e.g. kpl).
         return {
           ...item.toObject(),
           name: (item.name || foodItemData.name || "Nimetön tuote").trim(),
           category: foodItemData.category || item.category || [],
-          unit: normalizeAppUnit(foodItemData.unit || item.unit),
+          unit: normalizeAppUnit(item.unit || foodItemData.unit),
           calories: foodItemData.calories || item.calories || 0,
           price: foodItemData.price || item.price || 0,
           image:

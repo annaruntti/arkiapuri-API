@@ -364,12 +364,15 @@ export interface ParsedPackageQuantity {
   quantityLabel?: string
 }
 
+const QUANTITY_PAIR_RE = /(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ]+)/gi
+
 /**
  * Parse OFF quantity fields into app unit + package size.
  * Supports:
  * - product_quantity + product_quantity_unit
  * - "500 g", "1.5 L", "330ml"
  * - multipacks: "6 x 25 cl"
+ * - compound labels: "4 kpl, 350 g" (prefers mass/volume over piece count)
  */
 export const parseOpenFoodFactsQuantity = (input: {
   quantityLabel?: string | null
@@ -405,15 +408,29 @@ export const parseOpenFoodFactsQuantity = (input: {
       }
     }
 
-    const simple = quantityLabel.match(
-      /(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ]+)/i
-    )
-    if (simple) {
-      const amount = parseFloat(simple[1].replace(",", "."))
-      const resolved = resolveUnit(simple[2], amount)
+    const pairs = [...quantityLabel.matchAll(QUANTITY_PAIR_RE)]
+      .map((match) => {
+        const amount = parseFloat(match[1].replace(",", "."))
+        if (!Number.isFinite(amount) || amount <= 0) return null
+        const resolved = resolveUnit(match[2], amount)
+        return {
+          ...resolved,
+          isCount: resolved.unit === "kpl",
+        }
+      })
+      .filter(
+        (
+          pair
+        ): pair is { unit: AppFoodUnit; quantity: number; isCount: boolean } =>
+          pair !== null
+      )
+
+    if (pairs.length > 0) {
+      // "4 kpl, 350 g" → prefer 350 g (package net weight) over piece count.
+      const preferred = pairs.find((pair) => !pair.isCount) || pairs[0]
       return {
-        ...resolved,
-        packageQuantity: resolved.quantity,
+        unit: preferred.unit,
+        packageQuantity: preferred.quantity,
         quantityLabel,
       }
     }

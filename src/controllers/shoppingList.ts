@@ -73,16 +73,17 @@ const mapShoppingListItem = (
   const foodId = resolveItemFoodId(item.foodId)
 
   return {
+    ...(item._id ? { _id: item._id } : {}),
     ...(foodId ? { foodId } : {}),
     name: item.name,
     estimatedPrice: item.estimatedPrice,
     quantity: parsedQuantity,
-    unit: item.unit || "kpl",
+    unit: normalizeAppUnit(item.unit),
     category: item.category || item.categories || [],
     calories: item.calories || 0,
     price: item.price || 0,
     bought: false,
-  }
+  } as unknown as Partial<IShoppingListItem>
 }
 
 const mergeFoodIdIntoItems = (list: {
@@ -266,6 +267,9 @@ exports.markItemAsBought = async (
         if (!foodItem.locations.includes("pantry")) {
           foodItem.locations.push("pantry")
         }
+        // Keep FoodItem.unit aligned with what was actually transferred so
+        // later reads that fall back to foodId.unit do not rewrite the amount.
+        foodItem.unit = unit
         foodItem.quantities.pantry =
           (foodItem.quantities.pantry || 0) + pantryQty
         foodItem.quantities["shopping-list"] = Math.max(
@@ -282,11 +286,14 @@ exports.markItemAsBought = async (
       (resolvedFoodId &&
         pantry.items.find(
           (pantryItem) =>
-            pantryItem.foodId?.toString() === String(resolvedFoodId)
+            pantryItem.foodId?.toString() === String(resolvedFoodId) &&
+            normalizeAppUnit(pantryItem.unit) === unit
         )) ||
       pantry.items.find(
         (pantryItem) =>
-          pantryItemMergeKey(pantryItem.name) === pantryItemMergeKey(item.name)
+          pantryItemMergeKey(pantryItem.name) ===
+            pantryItemMergeKey(item.name) &&
+          normalizeAppUnit(pantryItem.unit) === unit
       )
 
     if (existingPantryItem) {
@@ -327,6 +334,7 @@ exports.markItemAsBought = async (
     pantry.markModified("items")
 
     shoppingList.items.splice(itemIndex, 1)
+    shoppingList.markModified("items")
 
     await Promise.all([shoppingList.save(), pantry.save()])
 
@@ -354,6 +362,89 @@ exports.markItemAsBought = async (
       success: false,
       error: getErrorMessage(error),
     })
+  }
+}
+
+exports.updateShoppingListItem = async (
+  req: AuthenticatedRequest<
+    { listId: string; itemId: string },
+    unknown,
+    ShoppingListItemInput
+  >,
+  res: Response
+) => {
+  try {
+    const { listId, itemId } = req.params
+    const updates = req.body
+    const normalizedItemId = String(itemId)
+
+    const shoppingList = await ShoppingList.findOne(
+      shoppingListAccessQuery(req.user, listId)
+    )
+
+    if (!shoppingList) {
+      return res.status(404).json({
+        success: false,
+        message: "Shopping list not found",
+      })
+    }
+
+    const item = shoppingList.items.find(
+      (listItem) => listItem._id?.toString() === normalizedItemId
+    )
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in shopping list",
+      })
+    }
+
+    if (updates.name !== undefined) item.name = updates.name
+    if (updates.quantity !== undefined) {
+      item.quantity = parseQuantity(updates.quantity)
+    }
+    if (updates.unit !== undefined) item.unit = updates.unit
+    if (updates.category !== undefined || updates.categories !== undefined) {
+      item.category = updates.category || updates.categories || []
+    }
+    if (updates.calories !== undefined) item.calories = updates.calories
+    if (updates.price !== undefined) item.price = updates.price
+    if (updates.estimatedPrice !== undefined) {
+      item.estimatedPrice = updates.estimatedPrice
+    }
+    const resolvedFoodId = resolveItemFoodId(updates.foodId)
+    if (resolvedFoodId) {
+      item.foodId = resolvedFoodId
+    }
+
+    shoppingList.totalEstimatedPrice = shoppingList.items.reduce(
+      (total, listItem) => total + (listItem.estimatedPrice || 0),
+      0
+    )
+    shoppingList.markModified("items")
+
+    await shoppingList.save()
+
+    const updatedShoppingList = await ShoppingList.findOne(
+      shoppingListAccessQuery(req.user, listId)
+    ).populate({
+      path: "items.foodId",
+      select: FOOD_ITEM_SELECT,
+    })
+
+    res.json({
+      success: true,
+      shoppingList: updatedShoppingList
+        ? mergeFoodIdIntoItems(
+            updatedShoppingList.toObject() as unknown as {
+              items: Array<Record<string, unknown>>
+            }
+          )
+        : shoppingList,
+    })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
 }
 

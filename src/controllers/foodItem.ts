@@ -592,11 +592,16 @@ exports.findOrCreateFoodItem = async (
       calories: calories || 0,
       user: req.user._id,
       locations: location ? [location] : ["meal"],
+      // NOTE: fallback must be 0, not parseQuantity's default of 1 — a
+      // caller passing a partial `quantities` object (e.g. only `pantry`)
+      // must not have the omitted locations silently default to 1.
       quantities: quantities
         ? {
-            meal: parseQuantity(quantities.meal),
-            "shopping-list": parseQuantity(quantities["shopping-list"]),
-            pantry: parseQuantity(quantities.pantry),
+            meal: parseQuantity(quantities.meal, { fallback: 0 }),
+            "shopping-list": parseQuantity(quantities["shopping-list"], {
+              fallback: 0,
+            }),
+            pantry: parseQuantity(quantities.pantry, { fallback: 0 }),
           }
         : {
             meal: location === "meal" ? 1 : 0,

@@ -7,6 +7,7 @@ const {
   deleteShoppingList,
   markItemAsBought,
   addItemsToShoppingList,
+  updateShoppingListItem,
 } = require("../controllers/shoppingList")
 
 const router = Router()
@@ -16,6 +17,11 @@ router.post("/shopping-lists/:id/items", isAuth, addItemsToShoppingList)
 router.get("/shopping-lists", isAuth, getShoppingLists)
 router.put("/shopping-lists/:id", isAuth, updateShoppingList)
 router.delete("/shopping-lists/:id", isAuth, deleteShoppingList)
+router.put(
+  "/shopping-lists/:listId/items/:itemId",
+  isAuth,
+  updateShoppingListItem
+)
 router.post("/shopping-lists/:listId/items/:itemId/bought", isAuth, markItemAsBought)
 
 export default router
