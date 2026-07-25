@@ -6,29 +6,19 @@ import type { IFoodItem, FoodLocation } from "../models/foodItem"
 import type { IPantry, IPantryItem } from "../models/pantry"
 import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
 import type { IUser, IUserModel } from "../models/user"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  parseQuantity,
+  resolveModule,
+} from "../helpers/controllerUtils"
 
-interface ModelModule<T> {
-  default?: T
-}
-
-type ResolvableModelModule<T> = ModelModule<T> | T | null | undefined
-
-const resolveModel = <T>(modelModule: ResolvableModelModule<T>): T =>
-  (modelModule as ModelModule<T>)?.default || (modelModule as T)
-
-const FoodItem = resolveModel<Model<IFoodItem>>(require("../models/foodItem"))
-const User = resolveModel<IUserModel>(require("../models/user"))
-const Pantry = resolveModel<Model<IPantry>>(require("../models/pantry"))
-const ShoppingList = resolveModel<Model<IShoppingList>>(
+const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
+const User = resolveModule<IUserModel>(require("../models/user"))
+const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
+const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
 )
-
-type AuthenticatedRequest<
-  P = Record<string, string>,
-  ResBody = unknown,
-  ReqBody = unknown,
-  ReqQuery = Record<string, unknown>
-> = Request<P, ResBody, ReqBody, ReqQuery> & { user: IUser }
 
 interface FoodItemQuantitiesInput {
   meal?: string | number
@@ -116,20 +106,17 @@ type PopulatedFoodRef = Pick<IFoodItem, "_id" | "name">
 
 const FOOD_LOCATIONS: FoodLocation[] = ["meal", "shopping-list", "pantry"]
 
-const parseQuantity = (value: string | number | undefined): number => {
-  if (value === undefined) return 0
-  const parsed = typeof value === "number" ? value : parseFloat(value)
-  return Number.isFinite(parsed) ? parsed : 0
-}
+const parseFoodItemQuantity = (value: string | number | undefined): number =>
+  parseQuantity(value, { fallback: 0 })
 
 const buildQuantitiesFromBody = (
   body: CreateFoodItemBody
 ): IFoodItem["quantities"] => {
   if (body.quantities) {
     return {
-      meal: parseQuantity(body.quantities.meal),
-      "shopping-list": parseQuantity(body.quantities["shopping-list"]),
-      pantry: parseQuantity(body.quantities.pantry),
+      meal: parseFoodItemQuantity(body.quantities.meal),
+      "shopping-list": parseFoodItemQuantity(body.quantities["shopping-list"]),
+      pantry: parseFoodItemQuantity(body.quantities.pantry),
     }
   }
 
@@ -144,9 +131,6 @@ const resolveLocationsFromBody = (body: {
   if (body.location) return [body.location]
   return ["meal"]
 }
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Unknown error"
 
 const getPopulatedFoodName = (
   foodId: PopulatedFoodRef | undefined | null

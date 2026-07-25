@@ -5,6 +5,7 @@ import type { IPantryItem } from "../models/pantry"
 import {
   AuthenticatedRequest,
   getErrorMessage,
+  parseQuantity,
   resolveModule,
 } from "../helpers/controllerUtils"
 import {
@@ -40,11 +41,8 @@ interface UpdatePantryItemBody {
   [key: string]: unknown
 }
 
-const parseQuantity = (value: number | string | undefined): number => {
-  if (value === undefined) return 1
-  const parsed = typeof value === "number" ? value : parseFloat(value)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1
-}
+const parsePantryQuantity = (value: number | string | undefined): number =>
+  parseQuantity(value, { fallback: 1, min: 0 })
 
 exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -139,7 +137,7 @@ exports.addFoodItemToPantry = async (
       })
     }
 
-    const pantryQty = parseQuantity(quantity)
+    const pantryQty = parsePantryQuantity(quantity)
     const normalizedName = name?.trim() || ""
 
     let foodItem = foodId
@@ -341,12 +339,4 @@ exports.removePantryItem = async (
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
-}
-
-/** Stub kept for route compatibility; frontend uses markItemAsBought instead. */
-exports.moveToPantry = async (_req: AuthenticatedRequest, res: Response) => {
-  res.status(200).json({
-    success: true,
-    message: "Items moved to pantry successfully",
-  })
 }

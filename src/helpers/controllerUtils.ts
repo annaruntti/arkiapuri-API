@@ -27,3 +27,20 @@ export const isCloudinaryConfigured = (): boolean =>
       (process.env.CLOUDINARY_API_SECRET ||
         process.env.CLOUDINARY_API_KEY_SECRET)
   )
+
+export interface ParseQuantityOptions {
+  fallback?: number
+  min?: number
+}
+
+export const parseQuantity = (
+  value: number | string | undefined,
+  options: ParseQuantityOptions = {}
+): number => {
+  const { fallback = 1, min } = options
+  if (value === undefined) return fallback
+  const parsed = typeof value === "number" ? value : parseFloat(String(value))
+  if (!Number.isFinite(parsed)) return fallback
+  if (min !== undefined && parsed < min) return fallback
+  return parsed
+}

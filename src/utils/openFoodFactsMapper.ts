@@ -1,3 +1,10 @@
+import type {
+  IFoodItem,
+  IFoodItemOpenFoodFacts,
+  NutritionGrade,
+  NovaGroup,
+} from "../models/foodItem"
+
 /**
  * Map Open Food Facts category tags to Arkiapuri category names
  * (same names as in frontend categories.json).
@@ -219,6 +226,117 @@ const normalizeUnitToken = (raw: string): string =>
     .replace(/\s+/g, " ")
     .trim()
 
+const APP_FOOD_UNITS = new Set<string>([
+  "kpl",
+  "g",
+  "kg",
+  "l",
+  "dl",
+  "ml",
+  "tl",
+  "rkl",
+])
+
+/** Normalize user/OFF unit strings to app-supported units. */
+export const normalizeAppUnit = (unit?: string | null): AppFoodUnit => {
+  if (!unit) return "kpl"
+  const token = normalizeUnitToken(unit)
+  const mapping = UNIT_ALIASES[token] || UNIT_ALIASES[token.replace(/\s/g, "")]
+  if (mapping) {
+    return typeof mapping === "string" ? mapping : mapping.unit
+  }
+  return APP_FOOD_UNITS.has(token) ? (token as AppFoodUnit) : "kpl"
+}
+
+export const sanitizeNutritionGrade = (
+  grade: unknown
+): NutritionGrade | undefined => {
+  const normalized = String(grade || "").toLowerCase()
+  return ["a", "b", "c", "d", "e"].includes(normalized)
+    ? (normalized as NutritionGrade)
+    : undefined
+}
+
+export const sanitizeNovaGroup = (group: unknown): NovaGroup | undefined => {
+  const num = Number(group)
+  return [1, 2, 3, 4].includes(num) ? (num as NovaGroup) : undefined
+}
+
+export const sanitizeOpenFoodFactsMetadata = (
+  data: IFoodItemOpenFoodFacts
+): IFoodItemOpenFoodFacts => ({
+  ...data,
+  nutritionGrade:
+    sanitizeNutritionGrade(data.nutritionGrade) ?? data.nutritionGrade,
+  novaGroup: sanitizeNovaGroup(data.novaGroup) ?? data.novaGroup,
+})
+
+export interface MappedFoodItemFields {
+  name: string
+  category: string[]
+  calories: number
+  unit: AppFoodUnit
+  packageQuantity: number
+  image?: MappedOpenFoodFactsImage
+  openFoodFactsData: IFoodItemOpenFoodFacts
+}
+
+export type ApplyOpenFoodFactsMode = "merge" | "replace"
+
+/** Apply mapped OFF fields onto an existing FoodItem document. */
+export const applyMappedOpenFoodFactsToFoodItem = (
+  foodItem: IFoodItem,
+  mapped: MappedFoodItemFields,
+  mode: ApplyOpenFoodFactsMode = "merge"
+): void => {
+  if (mode === "replace") {
+    foodItem.calories = mapped.calories || foodItem.calories
+  } else if (!foodItem.calories && mapped.calories) {
+    foodItem.calories = mapped.calories
+  }
+
+  foodItem.category = [
+    ...new Set([...(foodItem.category || []), ...mapped.category]),
+  ]
+
+  if (!foodItem.packageQuantity && mapped.packageQuantity) {
+    foodItem.packageQuantity = mapped.packageQuantity
+  }
+  if ((!foodItem.unit || foodItem.unit === "kpl") && mapped.unit) {
+    foodItem.unit = mapped.unit
+  }
+  if (!foodItem.image?.url && mapped.image) {
+    foodItem.image = mapped.image
+  }
+
+  const sanitized = sanitizeOpenFoodFactsMetadata(mapped.openFoodFactsData)
+
+  if (mode === "replace") {
+    foodItem.openFoodFactsData = {
+      barcode: sanitized.barcode,
+      brands: sanitized.brands,
+      nutritionGrade: sanitized.nutritionGrade,
+      novaGroup: sanitized.novaGroup,
+      imageUrl: sanitized.imageUrl,
+      quantityLabel: sanitized.quantityLabel,
+      nutrition: sanitized.nutrition,
+      labels: sanitized.labels,
+      allergens: sanitized.allergens,
+      lastUpdated: new Date(),
+    }
+    return
+  }
+
+  foodItem.openFoodFactsData = {
+    ...foodItem.openFoodFactsData,
+    ...sanitized,
+    nutritionGrade:
+      sanitized.nutritionGrade ??
+      foodItem.openFoodFactsData?.nutritionGrade,
+    novaGroup: sanitized.novaGroup ?? foodItem.openFoodFactsData?.novaGroup,
+  }
+}
+
 const resolveUnit = (
   rawUnit: string,
   amount: number
@@ -341,7 +459,7 @@ export interface OpenFoodFactsLikeProduct {
  */
 export const mapOpenFoodFactsToFoodItemFields = (
   product: OpenFoodFactsLikeProduct
-) => {
+): MappedFoodItemFields => {
   const category = mapOpenFoodFactsCategories(
     product.categories || [],
     product.mainCategory
@@ -360,11 +478,11 @@ export const mapOpenFoodFactsToFoodItemFields = (
     unit: parsedQuantity.unit,
     packageQuantity: parsedQuantity.packageQuantity,
     image,
-    openFoodFactsData: {
+    openFoodFactsData: sanitizeOpenFoodFactsMetadata({
       barcode: product.barcode,
       brands: product.brands,
-      nutritionGrade: product.nutritionGrade,
-      novaGroup: product.novaGroup,
+      nutritionGrade: sanitizeNutritionGrade(product.nutritionGrade),
+      novaGroup: sanitizeNovaGroup(product.novaGroup),
       imageUrl: image?.url,
       quantityLabel: parsedQuantity.quantityLabel,
       nutrition: {
@@ -380,7 +498,7 @@ export const mapOpenFoodFactsToFoodItemFields = (
       labels: product.labels,
       allergens: product.allergens,
       lastUpdated: new Date(),
-    },
+    }),
   }
 }
 

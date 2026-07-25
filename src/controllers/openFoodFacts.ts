@@ -1,30 +1,19 @@
 import { Request, Response } from "express"
 import type { Model } from "mongoose"
 import type { IFoodItem } from "../models/foodItem"
-import type { IUser } from "../models/user"
+import {
+  AuthenticatedRequest,
+  getErrorMessage,
+  resolveModule,
+} from "../helpers/controllerUtils"
 import openFoodFactsService from "../services/openFoodFactsService"
-import { mapOpenFoodFactsToFoodItemFields } from "../utils/openFoodFactsMapper"
-
-interface ModelModule<T> {
-  default?: T
-}
-
-type ResolvableModule<T> = ModelModule<T> | T | null | undefined
-
-const resolveModule = <T>(module: ResolvableModule<T>): T =>
-  (module as ModelModule<T>)?.default || (module as T)
+import {
+  applyMappedOpenFoodFactsToFoodItem,
+  mapOpenFoodFactsToFoodItemFields,
+  normalizeAppUnit,
+} from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
-
-type AuthenticatedRequest<
-  P = Record<string, string>,
-  ResBody = unknown,
-  ReqBody = unknown,
-  ReqQuery = Record<string, unknown>
-> = Request<P, ResBody, ReqBody, ReqQuery> & { user: IUser }
-
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Unknown error"
 
 const asString = (value: unknown): string => {
   if (typeof value === "string") return value
@@ -308,9 +297,7 @@ exports.addToFoodItems = async (
       !Number.isFinite(requestedQuantity) || requestedQuantity === 1
     const normalizedUnit = usesDefaultUnit
       ? mapped.unit
-      : unit === "pcs"
-        ? "kpl"
-        : unit
+      : normalizeAppUnit(unit)
     const parsedQuantity =
       usesDefaultUnit && usesDefaultQuantity
         ? mapped.packageQuantity
@@ -323,45 +310,7 @@ exports.addToFoodItems = async (
         location as keyof typeof existingFoodItem.quantities
       ] += parsedQuantity
 
-      if (!existingFoodItem.packageQuantity && mapped.packageQuantity) {
-        existingFoodItem.packageQuantity = mapped.packageQuantity
-      }
-      if (
-        (!existingFoodItem.unit || existingFoodItem.unit === "kpl") &&
-        mapped.unit
-      ) {
-        existingFoodItem.unit = mapped.unit
-      }
-      if (!existingFoodItem.image?.url && mapped.image) {
-        existingFoodItem.image = mapped.image
-      }
-      if (mapped.category.length) {
-        existingFoodItem.category = [
-          ...new Set([...(existingFoodItem.category || []), ...mapped.category]),
-        ]
-      }
-      if (!existingFoodItem.calories && mapped.calories) {
-        existingFoodItem.calories = mapped.calories
-      }
-      existingFoodItem.openFoodFactsData = {
-        ...existingFoodItem.openFoodFactsData,
-        ...mapped.openFoodFactsData,
-        nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-          String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
-        )
-          ? (String(mapped.openFoodFactsData.nutritionGrade).toLowerCase() as
-              | "a"
-              | "b"
-              | "c"
-              | "d"
-              | "e")
-          : existingFoodItem.openFoodFactsData?.nutritionGrade,
-        novaGroup: [1, 2, 3, 4].includes(
-          Number(mapped.openFoodFactsData.novaGroup)
-        )
-          ? (mapped.openFoodFactsData.novaGroup as 1 | 2 | 3 | 4)
-          : existingFoodItem.openFoodFactsData?.novaGroup,
-      }
+      applyMappedOpenFoodFactsToFoodItem(existingFoodItem, mapped, "merge")
 
       await existingFoodItem.save()
 
@@ -394,19 +343,7 @@ exports.addToFoodItems = async (
           location === "shopping-list" ? parsedQuantity : 0,
         pantry: location === "pantry" ? parsedQuantity : 0,
       },
-      openFoodFactsData: {
-        ...mapped.openFoodFactsData,
-        nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-          String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
-        )
-          ? String(mapped.openFoodFactsData.nutritionGrade).toLowerCase()
-          : undefined,
-        novaGroup: [1, 2, 3, 4].includes(
-          Number(mapped.openFoodFactsData.novaGroup)
-        )
-          ? mapped.openFoodFactsData.novaGroup
-          : undefined,
-      },
+      openFoodFactsData: mapped.openFoodFactsData,
     }
 
     const foodItem = new FoodItem(foodItemData)
@@ -482,44 +419,7 @@ exports.enrichFoodItem = async (
 
     const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
 
-    foodItem.calories = mapped.calories || foodItem.calories
-    foodItem.category = [
-      ...new Set([...(foodItem.category || []), ...mapped.category]),
-    ]
-    if (!foodItem.packageQuantity && mapped.packageQuantity) {
-      foodItem.packageQuantity = mapped.packageQuantity
-    }
-    if ((!foodItem.unit || foodItem.unit === "kpl") && mapped.unit) {
-      foodItem.unit = mapped.unit
-    }
-    if (!foodItem.image?.url && mapped.image) {
-      foodItem.image = mapped.image
-    }
-    foodItem.openFoodFactsData = {
-      barcode: mapped.openFoodFactsData.barcode,
-      brands: mapped.openFoodFactsData.brands,
-      nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-        String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
-      )
-        ? (String(mapped.openFoodFactsData.nutritionGrade).toLowerCase() as
-            | "a"
-            | "b"
-            | "c"
-            | "d"
-            | "e")
-        : undefined,
-      novaGroup: [1, 2, 3, 4].includes(
-        Number(mapped.openFoodFactsData.novaGroup)
-      )
-        ? (mapped.openFoodFactsData.novaGroup as 1 | 2 | 3 | 4)
-        : undefined,
-      imageUrl: mapped.openFoodFactsData.imageUrl,
-      quantityLabel: mapped.openFoodFactsData.quantityLabel,
-      nutrition: mapped.openFoodFactsData.nutrition,
-      labels: mapped.openFoodFactsData.labels,
-      allergens: mapped.openFoodFactsData.allergens,
-      lastUpdated: new Date(),
-    }
+    applyMappedOpenFoodFactsToFoodItem(foodItem, mapped, "replace")
 
     await foodItem.save()
 
