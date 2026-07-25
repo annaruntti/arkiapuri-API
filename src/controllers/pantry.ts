@@ -13,6 +13,7 @@ import {
   mergeDuplicatePantryItems,
   mergeProcessedPantryItems,
 } from "../helpers/pantryHelpers"
+import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -53,8 +54,9 @@ exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
     // (that can split same-looking pantry rows into different merge keys).
     let touched = false
     for (const item of pantry.items) {
-      if (item.unit === "pcs") {
-        item.unit = "kpl"
+      const normalizedUnit = normalizeAppUnit(item.unit)
+      if (item.unit !== normalizedUnit) {
+        item.unit = normalizedUnit
         touched = true
       }
       if (!item.name?.trim()) {
@@ -85,7 +87,7 @@ exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
           ...item.toObject(),
           name: (item.name || foodItemData.name || "Nimetön tuote").trim(),
           category: foodItemData.category || item.category || [],
-          unit: unit === "pcs" ? "kpl" : unit,
+          unit: normalizeAppUnit(foodItemData.unit || item.unit),
           calories: foodItemData.calories || item.calories || 0,
           price: foodItemData.price || item.price || 0,
           image:

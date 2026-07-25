@@ -18,6 +18,7 @@ import {
   mergeDuplicatePantryItems,
   pantryItemMergeKey,
 } from "../helpers/pantryHelpers"
+import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -252,7 +253,7 @@ exports.markItemAsBought = async (
     const item = shoppingList.items[itemIndex]
     const pantryQty = parseQuantity(item.quantity)
     const resolvedFoodId = resolveItemFoodId(item.foodId)
-    const unit = !item.unit || item.unit === "pcs" ? "kpl" : item.unit
+    const unit = normalizeAppUnit(item.unit)
     const expirationDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
     if (resolvedFoodId) {
@@ -397,7 +398,23 @@ exports.addItemsToShoppingList = async (
 
     await shoppingList.save()
 
-    res.json({ success: true, shoppingList })
+    const updatedShoppingList = await ShoppingList.findOne(
+      shoppingListAccessQuery(req.user, id)
+    ).populate({
+      path: "items.foodId",
+      select: FOOD_ITEM_SELECT,
+    })
+
+    res.json({
+      success: true,
+      shoppingList: updatedShoppingList
+        ? mergeFoodIdIntoItems(
+            updatedShoppingList.toObject() as unknown as {
+              items: Array<Record<string, unknown>>
+            }
+          )
+        : shoppingList,
+    })
   } catch (error: unknown) {
     console.error("Error in addItemsToShoppingList:", error)
     res.status(500).json({

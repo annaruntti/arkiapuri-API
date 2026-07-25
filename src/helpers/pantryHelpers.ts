@@ -3,6 +3,7 @@ import type { IPantry, IPantryItem } from "../models/pantry"
 import type { IUser } from "../models/user"
 import { getDataOwnership, getDataQuery } from "./householdHelpers"
 import { resolveModule } from "./controllerUtils"
+import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
 
@@ -38,9 +39,6 @@ const getFoodIdString = (item: IPantryItem): string | null => {
 export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
   if (!pantry.items?.length) return false
 
-  const normalizeUnit = (unit?: string) =>
-    !unit || unit === "pcs" ? "kpl" : unit
-
   const getItemName = (item: IPantryItem): string => {
     const food = item.foodId as unknown as { name?: string } | null
     return item.name || food?.name || ""
@@ -71,13 +69,13 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
         primary: item,
         quantity: Number(item.quantity) || 0,
         expirationDate: item.expirationDate,
-        unit: normalizeUnit(item.unit),
+        unit: normalizeAppUnit(item.unit),
       })
       continue
     }
 
     existing.quantity += Number(item.quantity) || 0
-    existing.unit = normalizeUnit(existing.unit || item.unit)
+    existing.unit = normalizeAppUnit(existing.unit || item.unit)
     if (
       item.expirationDate &&
       (!existing.expirationDate ||
@@ -95,7 +93,7 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
     // Still normalize units in place when nothing to merge
     let unitChanged = false
     for (const item of pantry.items) {
-      const normalized = normalizeUnit(item.unit)
+      const normalized = normalizeAppUnit(item.unit)
       if (item.unit !== normalized) {
         item.unit = normalized
         unitChanged = true
@@ -118,7 +116,7 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
       ...raw,
       name: getItemName(group.primary),
       quantity: group.quantity,
-      unit: normalizeUnit(group.unit),
+      unit: normalizeAppUnit(group.unit),
       expirationDate: group.expirationDate || raw.expirationDate,
     }
   })
@@ -144,8 +142,6 @@ export const mergeProcessedPantryItems = <
   items: T[]
 ): T[] => {
   const groups = new Map<string, T>()
-  const normalizeUnit = (unit?: string) =>
-    !unit || unit === "pcs" ? "kpl" : unit
 
   for (const item of items) {
     const foodName =
@@ -176,7 +172,7 @@ export const mergeProcessedPantryItems = <
       groups.set(key, {
         ...item,
         name: item.name || foodName,
-        unit: normalizeUnit(item.unit),
+        unit: normalizeAppUnit(item.unit),
       })
       continue
     }
@@ -190,7 +186,7 @@ export const mergeProcessedPantryItems = <
       name: preferSpacedName ? nextName : existing.name,
       quantity:
         (Number(existing.quantity) || 0) + (Number(item.quantity) || 0),
-      unit: normalizeUnit(existing.unit || item.unit),
+      unit: normalizeAppUnit(existing.unit || item.unit),
       expirationDate:
         item.expirationDate &&
         (!existing.expirationDate ||
