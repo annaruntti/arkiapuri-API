@@ -21,6 +21,7 @@ export interface IFoodItemOpenFoodFacts {
   nutritionGrade?: NutritionGrade
   novaGroup?: NovaGroup
   imageUrl?: string
+  quantityLabel?: string
   nutrition?: IFoodItemNutrition
   labels?: string[]
   allergens?: string[]
@@ -31,6 +32,7 @@ export interface IFoodItem extends Document {
   name: string
   category: string[]
   unit: string
+  packageQuantity?: number
   price?: number
   calories?: number
   user: mongoose.Types.ObjectId
@@ -67,6 +69,10 @@ const foodItemSchema = new Schema<IFoodItem>(
     unit: {
       type: String,
       required: true,
+    },
+    packageQuantity: {
+      type: Number,
+      min: 0,
     },
     price: {
       type: Number,
@@ -112,6 +118,7 @@ const foodItemSchema = new Schema<IFoodItem>(
         enum: [1, 2, 3, 4],
       },
       imageUrl: String,
+      quantityLabel: String,
       nutrition: {
         proteins: { type: Number, default: 0 },
         carbohydrates: { type: Number, default: 0 },

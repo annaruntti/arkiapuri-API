@@ -1,10 +1,209 @@
 import type { Model } from "mongoose"
-import type { IPantry } from "../models/pantry"
+import type { IPantry, IPantryItem } from "../models/pantry"
 import type { IUser } from "../models/user"
 import { getDataOwnership, getDataQuery } from "./householdHelpers"
 import { resolveModule } from "./controllerUtils"
 
 const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
+
+export const normalizePantryItemName = (name: string): string =>
+  String(name || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+
+/** Merge key that treats "Kevyt maito" and "Kevytmaito" as the same product. */
+export const pantryItemMergeKey = (name: string): string =>
+  normalizePantryItemName(name)
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .trim()
+
+const getFoodIdString = (item: IPantryItem): string | null => {
+  const foodId = item.foodId as unknown
+  if (!foodId) return null
+  if (typeof foodId === "object" && foodId !== null && "_id" in foodId) {
+    return String((foodId as { _id: unknown })._id)
+  }
+  return String(foodId)
+}
+
+/**
+ * Collapse pantry rows that share the same product name (or same foodId).
+ * Name match is primary so duplicate adds with different foodItem ids still merge.
+ * Quantities are summed; the soonest expiration date is kept.
+ * Returns true if the pantry document was modified.
+ */
+export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
+  if (!pantry.items?.length) return false
+
+  const normalizeUnit = (unit?: string) =>
+    !unit || unit === "pcs" ? "kpl" : unit
+
+  const getItemName = (item: IPantryItem): string => {
+    const food = item.foodId as unknown as { name?: string } | null
+    return item.name || food?.name || ""
+  }
+
+  type Acc = {
+    primary: IPantryItem
+    quantity: number
+    expirationDate?: Date
+    unit: string
+  }
+
+  const groups = new Map<string, Acc>()
+  const originalCount = pantry.items.length
+
+  for (const item of pantry.items) {
+    const nameKey = pantryItemMergeKey(getItemName(item))
+    const foodId = getFoodIdString(item)
+    const key = nameKey
+      ? `name:${nameKey}`
+      : foodId
+        ? `food:${foodId}`
+        : `id:${String(item._id)}`
+
+    const existing = groups.get(key)
+    if (!existing) {
+      groups.set(key, {
+        primary: item,
+        quantity: Number(item.quantity) || 0,
+        expirationDate: item.expirationDate,
+        unit: normalizeUnit(item.unit),
+      })
+      continue
+    }
+
+    existing.quantity += Number(item.quantity) || 0
+    existing.unit = normalizeUnit(existing.unit || item.unit)
+    if (
+      item.expirationDate &&
+      (!existing.expirationDate ||
+        new Date(item.expirationDate) < new Date(existing.expirationDate))
+    ) {
+      existing.expirationDate = item.expirationDate
+    }
+    // Prefer the row that already has a linked food item
+    if (!getFoodIdString(existing.primary) && foodId) {
+      existing.primary = item
+    }
+  }
+
+  if (groups.size === originalCount) {
+    // Still normalize units in place when nothing to merge
+    let unitChanged = false
+    for (const item of pantry.items) {
+      const normalized = normalizeUnit(item.unit)
+      if (item.unit !== normalized) {
+        item.unit = normalized
+        unitChanged = true
+      }
+    }
+    return unitChanged
+  }
+
+  const mergedItems = [...groups.values()].map((group) => {
+    const raw = group.primary.toObject
+      ? group.primary.toObject()
+      : { ...group.primary }
+    // Drop mongoose subdoc id so a fresh subdocument is created; keep foodId link
+    delete (raw as { _id?: unknown })._id
+    if (raw.foodId && typeof raw.foodId === "object" && raw.foodId !== null) {
+      raw.foodId =
+        (raw.foodId as { _id?: unknown })._id || raw.foodId
+    }
+    return {
+      ...raw,
+      name: getItemName(group.primary),
+      quantity: group.quantity,
+      unit: normalizeUnit(group.unit),
+      expirationDate: group.expirationDate || raw.expirationDate,
+    }
+  })
+
+  pantry.set("items", mergedItems)
+  pantry.markModified("items")
+  return true
+}
+
+/**
+ * Merge already-serialized pantry items for API responses / UI.
+ */
+export const mergeProcessedPantryItems = <
+  T extends {
+    name?: string
+    quantity?: number
+    unit?: string
+    expirationDate?: Date | string
+    foodId?: unknown
+    image?: unknown
+  },
+>(
+  items: T[]
+): T[] => {
+  const groups = new Map<string, T>()
+  const normalizeUnit = (unit?: string) =>
+    !unit || unit === "pcs" ? "kpl" : unit
+
+  for (const item of items) {
+    const foodName =
+      item.foodId &&
+      typeof item.foodId === "object" &&
+      item.foodId !== null &&
+      "name" in item.foodId
+        ? String((item.foodId as { name?: string }).name || "")
+        : ""
+    const nameKey = pantryItemMergeKey(item.name || foodName)
+    const foodId =
+      item.foodId &&
+      typeof item.foodId === "object" &&
+      item.foodId !== null &&
+      "_id" in item.foodId
+        ? String((item.foodId as { _id: unknown })._id)
+        : item.foodId
+          ? String(item.foodId)
+          : ""
+    const key = nameKey
+      ? `name:${nameKey}`
+      : foodId
+        ? `food:${foodId}`
+        : `row:${groups.size}`
+
+    const existing = groups.get(key)
+    if (!existing) {
+      groups.set(key, {
+        ...item,
+        name: item.name || foodName,
+        unit: normalizeUnit(item.unit),
+      })
+      continue
+    }
+
+    const nextName = item.name || foodName || existing.name
+    const preferSpacedName =
+      /\s/.test(String(nextName)) && !/\s/.test(String(existing.name || ""))
+
+    groups.set(key, {
+      ...existing,
+      name: preferSpacedName ? nextName : existing.name,
+      quantity:
+        (Number(existing.quantity) || 0) + (Number(item.quantity) || 0),
+      unit: normalizeUnit(existing.unit || item.unit),
+      expirationDate:
+        item.expirationDate &&
+        (!existing.expirationDate ||
+          new Date(item.expirationDate) < new Date(existing.expirationDate))
+          ? item.expirationDate
+          : existing.expirationDate,
+      image: existing.image || item.image,
+      foodId: existing.foodId || item.foodId,
+    })
+  }
+
+  return [...groups.values()]
+}
 
 /**
  * Find (or create) the single canonical pantry for the user/household.
@@ -22,7 +221,11 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   }
 
   if (allPantries.length === 1) {
-    return allPantries[0]
+    const pantry = allPantries[0]
+    if (mergeDuplicatePantryItems(pantry)) {
+      await pantry.save()
+    }
+    return pantry
   }
 
   const householdPantry = allPantries.find((p) => p.household)
@@ -34,17 +237,26 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   )
 
   const canonicalNames = new Set(
-    canonical.items.map((i) => i.name.toLowerCase())
+    canonical.items.map((i) => pantryItemMergeKey(i.name))
   )
   const itemsToMerge = []
 
   for (const other of others) {
     for (const item of other.items) {
-      if (!canonicalNames.has(item.name.toLowerCase())) {
+      const nameKey = pantryItemMergeKey(item.name)
+      if (!canonicalNames.has(nameKey)) {
         const raw = item.toObject ? item.toObject() : { ...item }
         delete (raw as { _id?: unknown })._id
         itemsToMerge.push(raw)
-        canonicalNames.add(item.name.toLowerCase())
+        canonicalNames.add(nameKey)
+      } else {
+        const existing = canonical.items.find(
+          (i) => pantryItemMergeKey(i.name) === nameKey
+        )
+        if (existing) {
+          existing.quantity =
+            (Number(existing.quantity) || 0) + (Number(item.quantity) || 0)
+        }
       }
     }
   }
@@ -52,6 +264,7 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   if (itemsToMerge.length > 0) {
     canonical.items.push(...itemsToMerge)
   }
+  mergeDuplicatePantryItems(canonical)
   await canonical.save()
   await Pantry.deleteMany({ _id: { $in: others.map((p) => p._id) } })
 

@@ -38,7 +38,8 @@ interface CreateShoppingListBody {
   totalEstimatedPrice?: number
 }
 
-const FOOD_ITEM_SELECT = "name category unit calories price image"
+const FOOD_ITEM_SELECT =
+  "name category unit calories price image openFoodFactsData"
 
 const parseQuantity = (value: number | string | undefined): number => {
   if (typeof value === "number") return value
@@ -78,12 +79,18 @@ const mergeFoodIdIntoItems = (list: {
   list.items = list.items.map((item) => {
     if (item.foodId && typeof item.foodId === "object") {
       const foodId = item.foodId as {
-        image?: unknown
+        image?: { url?: string }
         category?: string[]
+        openFoodFactsData?: { imageUrl?: string }
       }
+      const image =
+        foodId.image ||
+        (foodId.openFoodFactsData?.imageUrl
+          ? { url: foodId.openFoodFactsData.imageUrl }
+          : item.image)
       return {
         ...item,
-        image: foodId.image || item.image,
+        image,
         category: item.category || foodId.category,
       }
     }

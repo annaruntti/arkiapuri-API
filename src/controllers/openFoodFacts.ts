@@ -3,6 +3,7 @@ import type { Model } from "mongoose"
 import type { IFoodItem } from "../models/foodItem"
 import type { IUser } from "../models/user"
 import openFoodFactsService from "../services/openFoodFactsService"
+import { mapOpenFoodFactsToFoodItemFields } from "../utils/openFoodFactsMapper"
 
 interface ModelModule<T> {
   default?: T
@@ -300,9 +301,68 @@ exports.addToFoodItems = async (
       name: offProduct.name,
     })
 
+    const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
+    const usesDefaultUnit = !unit || unit === "pcs" || unit === "kpl"
+    const requestedQuantity = parseFloat(String(quantity))
+    const usesDefaultQuantity =
+      !Number.isFinite(requestedQuantity) || requestedQuantity === 1
+    const normalizedUnit = usesDefaultUnit
+      ? mapped.unit
+      : unit === "pcs"
+        ? "kpl"
+        : unit
+    const parsedQuantity =
+      usesDefaultUnit && usesDefaultQuantity
+        ? mapped.packageQuantity
+        : Number.isFinite(requestedQuantity) && requestedQuantity > 0
+          ? requestedQuantity
+          : 1
+
     if (existingFoodItem) {
-      existingFoodItem.quantities[location as keyof typeof existingFoodItem.quantities] +=
-        parseFloat(String(quantity))
+      existingFoodItem.quantities[
+        location as keyof typeof existingFoodItem.quantities
+      ] += parsedQuantity
+
+      if (!existingFoodItem.packageQuantity && mapped.packageQuantity) {
+        existingFoodItem.packageQuantity = mapped.packageQuantity
+      }
+      if (
+        (!existingFoodItem.unit || existingFoodItem.unit === "kpl") &&
+        mapped.unit
+      ) {
+        existingFoodItem.unit = mapped.unit
+      }
+      if (!existingFoodItem.image?.url && mapped.image) {
+        existingFoodItem.image = mapped.image
+      }
+      if (mapped.category.length) {
+        existingFoodItem.category = [
+          ...new Set([...(existingFoodItem.category || []), ...mapped.category]),
+        ]
+      }
+      if (!existingFoodItem.calories && mapped.calories) {
+        existingFoodItem.calories = mapped.calories
+      }
+      existingFoodItem.openFoodFactsData = {
+        ...existingFoodItem.openFoodFactsData,
+        ...mapped.openFoodFactsData,
+        nutritionGrade: ["a", "b", "c", "d", "e"].includes(
+          String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
+        )
+          ? (String(mapped.openFoodFactsData.nutritionGrade).toLowerCase() as
+              | "a"
+              | "b"
+              | "c"
+              | "d"
+              | "e")
+          : existingFoodItem.openFoodFactsData?.nutritionGrade,
+        novaGroup: [1, 2, 3, 4].includes(
+          Number(mapped.openFoodFactsData.novaGroup)
+        )
+          ? (mapped.openFoodFactsData.novaGroup as 1 | 2 | 3 | 4)
+          : existingFoodItem.openFoodFactsData?.novaGroup,
+      }
+
       await existingFoodItem.save()
 
       return res.json({
@@ -310,37 +370,42 @@ exports.addToFoodItems = async (
         message: "Product quantity updated",
         foodItem: existingFoodItem,
         fromOpenFoodFacts: true,
+        collectionData: {
+          location,
+          quantity: parsedQuantity,
+          unit: normalizedUnit,
+          shoppingListId,
+          mealId,
+        },
       })
     }
 
     const foodItemData = {
-      name: offProduct.name,
-      category: [offProduct.mainCategory],
-      unit: unit,
-      calories: offProduct.nutrition.calories,
+      name: mapped.name,
+      category: mapped.category,
+      unit: normalizedUnit,
+      packageQuantity: mapped.packageQuantity,
+      calories: mapped.calories,
       user: req.user._id,
+      image: mapped.image,
       quantities: {
-        meal: location === "meal" ? parseFloat(String(quantity)) : 0,
+        meal: location === "meal" ? parsedQuantity : 0,
         "shopping-list":
-          location === "shopping-list" ? parseFloat(String(quantity)) : 0,
-        pantry: location === "pantry" ? parseFloat(String(quantity)) : 0,
+          location === "shopping-list" ? parsedQuantity : 0,
+        pantry: location === "pantry" ? parsedQuantity : 0,
       },
       openFoodFactsData: {
-        barcode: offProduct.barcode,
-        brands: offProduct.brands,
+        ...mapped.openFoodFactsData,
         nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-          offProduct.nutritionGrade?.toLowerCase() ?? ""
+          String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
         )
-          ? offProduct.nutritionGrade!.toLowerCase()
+          ? String(mapped.openFoodFactsData.nutritionGrade).toLowerCase()
           : undefined,
-        novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup ?? -1)
-          ? offProduct.novaGroup
+        novaGroup: [1, 2, 3, 4].includes(
+          Number(mapped.openFoodFactsData.novaGroup)
+        )
+          ? mapped.openFoodFactsData.novaGroup
           : undefined,
-        imageUrl: offProduct.imageUrl,
-        nutrition: offProduct.nutrition,
-        labels: offProduct.labels,
-        allergens: offProduct.allergens,
-        lastUpdated: new Date(),
       },
     }
 
@@ -355,8 +420,8 @@ exports.addToFoodItems = async (
       openFoodFactsData: offProduct,
       collectionData: {
         location,
-        quantity: parseFloat(String(quantity)),
-        unit,
+        quantity: parsedQuantity,
+        unit: normalizedUnit,
         shoppingListId,
         mealId,
       },
@@ -415,30 +480,44 @@ exports.enrichFoodItem = async (
       })
     }
 
-    foodItem.calories = offProduct.nutrition.calories || foodItem.calories
+    const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
+
+    foodItem.calories = mapped.calories || foodItem.calories
     foodItem.category = [
-      ...new Set([...foodItem.category, offProduct.mainCategory]),
+      ...new Set([...(foodItem.category || []), ...mapped.category]),
     ]
+    if (!foodItem.packageQuantity && mapped.packageQuantity) {
+      foodItem.packageQuantity = mapped.packageQuantity
+    }
+    if ((!foodItem.unit || foodItem.unit === "kpl") && mapped.unit) {
+      foodItem.unit = mapped.unit
+    }
+    if (!foodItem.image?.url && mapped.image) {
+      foodItem.image = mapped.image
+    }
     foodItem.openFoodFactsData = {
-      barcode: offProduct.barcode,
-      brands: offProduct.brands,
+      barcode: mapped.openFoodFactsData.barcode,
+      brands: mapped.openFoodFactsData.brands,
       nutritionGrade: ["a", "b", "c", "d", "e"].includes(
-        offProduct.nutritionGrade?.toLowerCase() ?? ""
+        String(mapped.openFoodFactsData.nutritionGrade || "").toLowerCase()
       )
-        ? (offProduct.nutritionGrade!.toLowerCase() as
+        ? (String(mapped.openFoodFactsData.nutritionGrade).toLowerCase() as
             | "a"
             | "b"
             | "c"
             | "d"
             | "e")
         : undefined,
-      novaGroup: [1, 2, 3, 4].includes(offProduct.novaGroup ?? -1)
-        ? (offProduct.novaGroup as 1 | 2 | 3 | 4)
+      novaGroup: [1, 2, 3, 4].includes(
+        Number(mapped.openFoodFactsData.novaGroup)
+      )
+        ? (mapped.openFoodFactsData.novaGroup as 1 | 2 | 3 | 4)
         : undefined,
-      imageUrl: offProduct.imageUrl ?? undefined,
-      nutrition: offProduct.nutrition,
-      labels: offProduct.labels,
-      allergens: offProduct.allergens,
+      imageUrl: mapped.openFoodFactsData.imageUrl,
+      quantityLabel: mapped.openFoodFactsData.quantityLabel,
+      nutrition: mapped.openFoodFactsData.nutrition,
+      labels: mapped.openFoodFactsData.labels,
+      allergens: mapped.openFoodFactsData.allergens,
       lastUpdated: new Date(),
     }
 

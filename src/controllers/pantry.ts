@@ -7,7 +7,11 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
-import { getCanonicalPantry } from "../helpers/pantryHelpers"
+import {
+  getCanonicalPantry,
+  mergeDuplicatePantryItems,
+  mergeProcessedPantryItems,
+} from "../helpers/pantryHelpers"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -47,20 +51,53 @@ exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
     const pantry = await getCanonicalPantry(req.user)
     await pantry.populate({ path: "items.foodId" })
 
-    const processedItems = pantry.items.map((item) => {
-      const foodItemData =
-        item.foodId && typeof item.foodId === "object"
-          ? (item.foodId as unknown as Partial<IFoodItem>)
-          : {}
-      return {
-        ...item.toObject(),
-        category: foodItemData.category || item.category || [],
-        unit: foodItemData.unit || item.unit || "kpl",
-        calories: foodItemData.calories || item.calories || 0,
-        price: foodItemData.price || item.price || 0,
-        image: foodItemData.image || null,
+    // Normalize units only; do not overwrite names from food items
+    // (that can split same-looking pantry rows into different merge keys).
+    let touched = false
+    for (const item of pantry.items) {
+      if (item.unit === "pcs") {
+        item.unit = "kpl"
+        touched = true
       }
-    })
+      if (!item.name?.trim()) {
+        const foodItemData =
+          item.foodId && typeof item.foodId === "object"
+            ? (item.foodId as unknown as Partial<IFoodItem>)
+            : null
+        if (foodItemData?.name) {
+          item.name = foodItemData.name
+          touched = true
+        }
+      }
+    }
+
+    if (mergeDuplicatePantryItems(pantry) || touched) {
+      await pantry.save()
+      await pantry.populate({ path: "items.foodId" })
+    }
+
+    const processedItems = mergeProcessedPantryItems(
+      pantry.items.map((item) => {
+        const foodItemData =
+          item.foodId && typeof item.foodId === "object"
+            ? (item.foodId as unknown as Partial<IFoodItem>)
+            : {}
+        const unit = foodItemData.unit || item.unit || "kpl"
+        return {
+          ...item.toObject(),
+          name: (item.name || foodItemData.name || "Nimetön tuote").trim(),
+          category: foodItemData.category || item.category || [],
+          unit: unit === "pcs" ? "kpl" : unit,
+          calories: foodItemData.calories || item.calories || 0,
+          price: foodItemData.price || item.price || 0,
+          image:
+            foodItemData.image ||
+            (foodItemData.openFoodFactsData?.imageUrl
+              ? { url: foodItemData.openFoodFactsData.imageUrl }
+              : null),
+        }
+      })
+    )
 
     res.json({
       success: true,
@@ -168,9 +205,14 @@ exports.addFoodItemToPantry = async (
 
     const pantry = await getCanonicalPantry(req.user)
 
-    const existingItem = pantry.items.find(
-      (item) => item.foodId?.toString() === foodItem!._id.toString()
-    )
+    const existingItem =
+      pantry.items.find(
+        (item) => item.foodId?.toString() === foodItem!._id.toString()
+      ) ||
+      pantry.items.find(
+        (item) =>
+          item.name.trim().toLowerCase() === foodItem!.name.trim().toLowerCase()
+      )
 
     if (existingItem) {
       existingItem.quantity += pantryQty
@@ -178,6 +220,8 @@ exports.addFoodItemToPantry = async (
       existingItem.category = foodItem.category
       existingItem.calories = foodItem.calories || 0
       existingItem.price = foodItem.price || 0
+      existingItem.foodId = foodItem._id
+      existingItem.name = foodItem.name
       if (expirationDate) {
         existingItem.expirationDate = new Date(expirationDate)
       }

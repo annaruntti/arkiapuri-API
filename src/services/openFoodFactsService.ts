@@ -25,6 +25,8 @@ export interface FormattedProduct {
   name: string
   brands: string
   quantity: string
+  productQuantity: number | string | null
+  productQuantityUnit: string | null
   categories: string[]
   mainCategory: string
   nutrition: Nutrition
@@ -63,13 +65,35 @@ interface SuggestionItem {
 
 class OpenFoodFactsService {
   private baseURL: string
+  private searchURL: string
   private defaultHeaders: Record<string, string>
+  private searchFields: string
 
   constructor() {
     this.baseURL = "https://world.openfoodfacts.org"
+    this.searchURL = "https://search.openfoodfacts.org"
     this.defaultHeaders = {
       "User-Agent": "Arkiapuri/1.0 (arkiapuri@example.com)",
     }
+    this.searchFields = [
+      "code",
+      "product_name",
+      "product_name_fi",
+      "brands",
+      "brands_tags",
+      "categories_tags",
+      "quantity",
+      "product_quantity",
+      "product_quantity_unit",
+      "image_url",
+      "image_front_url",
+      "nutrition_grades",
+      "nova_group",
+      "labels_tags",
+      "allergens_tags",
+      "countries_tags",
+      "nutriments",
+    ].join(",")
   }
 
   async makeRequest(url: string, options: RequestOptions = {}): Promise<any> {
@@ -83,8 +107,12 @@ class OpenFoodFactsService {
 
     try {
       const response = await fetch(url, requestOptions as RequestInit)
+      const contentType = response.headers.get("content-type") || ""
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      if (!contentType.includes("application/json")) {
+        throw new Error(`Unexpected content type: ${contentType}`)
       }
       return await response.json()
     } catch (error) {
@@ -95,7 +123,7 @@ class OpenFoodFactsService {
 
   async searchByBarcode(barcode: string): Promise<FormattedProduct | null> {
     try {
-      const url = `${this.baseURL}/api/v2/product/${barcode}?fields=code,product_name,brands,categories_tags,quantity,ingredients_text,nutriments,image_url,image_front_url,nutrition_grades,nova_group,labels_tags,allergens_tags,traces_tags,packaging_tags,countries_tags`
+      const url = `${this.baseURL}/api/v2/product/${barcode}?fields=code,product_name,brands,categories_tags,quantity,product_quantity,product_quantity_unit,ingredients_text,nutriments,image_url,image_front_url,nutrition_grades,nova_group,labels_tags,allergens_tags,traces_tags,packaging_tags,countries_tags`
       const data = await this.makeRequest(url)
       if (data.status === 1 && data.product) {
         return this.formatProductData(data.product)
@@ -107,29 +135,133 @@ class OpenFoodFactsService {
     }
   }
 
+  /**
+   * Full-text search via Search-a-licious (recommended), with legacy cgi/search.pl fallback.
+   * Results are ranked so product names containing the query come first.
+   */
   async searchByText(query: string, page = 1, pageSize = 20): Promise<SearchResult> {
+    const trimmed = query.trim()
     try {
-      const url = `${this.baseURL}/cgi/search.pl?search_simple=1&search_terms=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}&json=1&fields=code,product_name,brands,categories_tags,quantity,image_url,image_front_url,nutrition_grades,nova_group,labels_tags,countries_tags`
+      const fetchSize = Math.min(Math.max(pageSize * 3, 24), 50)
+      const url =
+        `${this.searchURL}/search?q=${encodeURIComponent(trimmed)}` +
+        `&page=${page}&page_size=${fetchSize}&langs=fi&fields=${this.searchFields}`
+
       const data = await this.makeRequest(url)
-      if (data && data.products) {
-        return {
-          products: data.products.map((product: any) => this.formatProductData(product)),
-          count: data.count || 0,
-          page: data.page || 1,
-          pageSize: data.page_size || pageSize,
-          totalPages: Math.ceil((data.count || 0) / pageSize),
-        }
+      const hits = Array.isArray(data?.hits) ? data.hits : []
+      const ranked = this.rankSearchHits(hits, trimmed).slice(0, pageSize)
+      const count = Number(data?.count) || ranked.length
+
+      return {
+        products: ranked.map((product) => this.formatProductData(product)),
+        count,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(count / pageSize)),
       }
-      return { products: [], count: 0, page: 1, pageSize, totalPages: 0 }
+    } catch (primaryError: any) {
+      console.warn(
+        "Search-a-licious failed, falling back to cgi/search.pl:",
+        primaryError.message
+      )
+      return this.searchByTextLegacy(trimmed, page, pageSize)
+    }
+  }
+
+  private async searchByTextLegacy(
+    query: string,
+    page = 1,
+    pageSize = 20
+  ): Promise<SearchResult> {
+    try {
+      const fetchSize = Math.min(Math.max(pageSize * 3, 24), 50)
+      const url =
+        `${this.baseURL}/cgi/search.pl?action=process&search_simple=1` +
+        `&search_terms=${encodeURIComponent(query)}&page=${page}` +
+        `&page_size=${fetchSize}&json=1&lc=fi&cc=fi` +
+        `&fields=${this.searchFields}`
+
+      const data = await this.makeRequest(url)
+      const products = Array.isArray(data?.products) ? data.products : []
+      const ranked = this.rankSearchHits(products, query).slice(0, pageSize)
+      const count = Number(data?.count) || ranked.length
+
+      return {
+        products: ranked.map((product) => this.formatProductData(product)),
+        count,
+        page: Number(data?.page) || page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(count / pageSize)),
+      }
     } catch (error: any) {
       console.error("Error searching by text:", error.message)
       throw new Error("Failed to search products by text")
     }
   }
 
+  private rankSearchHits(hits: any[], query: string): any[] {
+    const queryLower = query.toLowerCase().trim()
+    if (!queryLower || hits.length === 0) return hits
+
+    const scored = hits.map((hit, index) => {
+      const name = this.getProductDisplayName(hit).toLowerCase()
+      const brands = this.normalizeBrands(hit.brands).toLowerCase()
+      const inFinland = (hit.countries_tags || []).some(
+        (tag: string) =>
+          String(tag).includes("finland") || String(tag).includes("suomi")
+      )
+
+      let rank = 50
+      if (name === queryLower) rank = 0
+      else if (name.startsWith(queryLower)) rank = 1
+      else if (name.includes(queryLower)) rank = 2
+      else if (brands.includes(queryLower)) rank = 10
+      else rank = 40
+
+      return { hit, rank, inFinland, index }
+    })
+
+    const nameMatches = scored.filter((item) => item.rank <= 2)
+    const brandMatches = scored.filter((item) => item.rank === 10)
+    const otherMatches = scored.filter((item) => item.rank > 10)
+
+    const byRelevance = (a: typeof scored[number], b: typeof scored[number]) =>
+      a.rank - b.rank ||
+      Number(b.inFinland) - Number(a.inFinland) ||
+      a.index - b.index
+
+    // Name hits first; fill remaining slots with brand hits (useful for "leipä"),
+    // and only then fall back to weaker OFF matches.
+    const ranked = [
+      ...nameMatches.sort(byRelevance),
+      ...brandMatches.sort(byRelevance),
+      ...(nameMatches.length === 0 && brandMatches.length === 0
+        ? otherMatches.sort(byRelevance)
+        : []),
+    ]
+
+    return ranked.map((item) => item.hit)
+  }
+
+  private getProductDisplayName(product: any): string {
+    return (
+      product.product_name_fi ||
+      product.product_name ||
+      product.name ||
+      ""
+    )
+  }
+
+  private normalizeBrands(brands: unknown): string {
+    if (Array.isArray(brands)) {
+      return brands.filter(Boolean).join(", ")
+    }
+    return typeof brands === "string" ? brands : ""
+  }
+
   async searchByCategory(category: string, page = 1, pageSize = 20): Promise<SearchResult> {
     try {
-      const url = `${this.baseURL}/api/v2/search?categories_tags_en=${encodeURIComponent(category)}&page=${page}&page_size=${pageSize}&fields=code,product_name,brands,categories_tags,quantity,image_url,image_front_url,nutrition_grades,nova_group,labels_tags,countries_tags`
+      const url = `${this.baseURL}/api/v2/search?categories_tags_en=${encodeURIComponent(category)}&page=${page}&page_size=${pageSize}&fields=code,product_name,brands,categories_tags,quantity,product_quantity,product_quantity_unit,image_url,image_front_url,nutrition_grades,nova_group,labels_tags,countries_tags`
       const data = await this.makeRequest(url)
       if (data && data.products) {
         return {
@@ -180,12 +312,22 @@ class OpenFoodFactsService {
   formatProductData(product: any): FormattedProduct {
     const nutrients = product.nutriments || {}
     return {
-      barcode: product.code,
-      name: product.product_name || "Unknown Product",
-      brands: product.brands || "",
+      barcode: product.code || product.barcode,
+      name: this.getProductDisplayName(product) || "Unknown Product",
+      brands: this.normalizeBrands(product.brands),
       quantity: product.quantity || "",
-      categories: product.categories_tags || [],
-      mainCategory: this.extractMainCategory(product.categories_tags),
+      productQuantity:
+        product.product_quantity != null
+          ? product.product_quantity
+          : product.productQuantity != null
+            ? product.productQuantity
+            : null,
+      productQuantityUnit:
+        product.product_quantity_unit || product.productQuantityUnit || null,
+      categories: product.categories_tags || product.categories || [],
+      mainCategory: this.extractMainCategory(
+        product.categories_tags || product.categories || []
+      ),
       nutrition: {
         calories: nutrients["energy-kcal_100g"] || nutrients["energy-kcal"] || 0,
         proteins: nutrients["proteins_100g"] || 0,
@@ -197,16 +339,16 @@ class OpenFoodFactsService {
         sodium: nutrients["sodium_100g"] || 0,
         salt: nutrients["salt_100g"] || 0,
       },
-      nutritionGrade: product.nutrition_grades || null,
-      novaGroup: product.nova_group || null,
-      imageUrl: product.image_url || product.image_front_url || null,
-      imageFrontUrl: product.image_front_url || null,
-      labels: product.labels_tags || [],
-      allergens: product.allergens_tags || [],
-      traces: product.traces_tags || [],
-      packaging: product.packaging_tags || [],
-      countries: product.countries_tags || [],
-      ingredients: product.ingredients_text || "",
+      nutritionGrade: product.nutrition_grades || product.nutritionGrade || null,
+      novaGroup: product.nova_group || product.novaGroup || null,
+      imageUrl: product.image_url || product.image_front_url || product.imageUrl || null,
+      imageFrontUrl: product.image_front_url || product.imageFrontUrl || null,
+      labels: product.labels_tags || product.labels || [],
+      allergens: product.allergens_tags || product.allergens || [],
+      traces: product.traces_tags || product.traces || [],
+      packaging: product.packaging_tags || product.packaging || [],
+      countries: product.countries_tags || product.countries || [],
+      ingredients: product.ingredients_text || product.ingredients || "",
       source: "openfoodfacts",
       lastUpdated: new Date(),
     }
