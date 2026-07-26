@@ -7,9 +7,9 @@ interface AppError extends Error {
 
 const errorHandler = (
   err: AppError,
-  req: Request,
+  _req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void => {
   console.error("Error:", {
     message: err.message,

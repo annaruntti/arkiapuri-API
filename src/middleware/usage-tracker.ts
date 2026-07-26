@@ -1,8 +1,6 @@
-import { Request, Response, NextFunction } from "express"
-
 // Placeholder – full UsageTracker implementation pending
 const UsageTracker = {
-  async trackRequest(userId: string): Promise<boolean> {
+  async trackRequest(_userId: string): Promise<boolean> {
     try {
       // TODO: Integrate Usage model
       return true // Fail open

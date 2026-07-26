@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
-const {
+import {
   createHousehold,
   getHousehold,
   updateHousehold,
@@ -11,7 +11,7 @@ const {
   deleteHousehold,
   getInvitationByToken,
   acceptInvitation,
-} = require("../controllers/household")
+} from "../controllers/household"
 
 const router = Router()
 

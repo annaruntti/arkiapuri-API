@@ -112,7 +112,7 @@ const mergeFoodIdIntoItems = (list: {
   return list
 }
 
-exports.createShoppingList = async (
+export const createShoppingList = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -149,7 +149,7 @@ exports.createShoppingList = async (
   }
 }
 
-exports.getShoppingLists = async (
+export const getShoppingLists = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
@@ -174,7 +174,7 @@ exports.getShoppingLists = async (
   }
 }
 
-exports.updateShoppingList = async (
+export const updateShoppingList = async (
   req: AuthenticatedRequest<
     { id: string },
     unknown,
@@ -221,7 +221,7 @@ exports.updateShoppingList = async (
   }
 }
 
-exports.markItemAsBought = async (
+export const markItemAsBought = async (
   req: AuthenticatedRequest<{ listId: string; itemId: string }>,
   res: Response
 ) => {
@@ -365,7 +365,7 @@ exports.markItemAsBought = async (
   }
 }
 
-exports.updateShoppingListItem = async (
+export const updateShoppingListItem = async (
   req: AuthenticatedRequest<
     { listId: string; itemId: string },
     unknown,
@@ -448,7 +448,7 @@ exports.updateShoppingListItem = async (
   }
 }
 
-exports.addItemsToShoppingList = async (
+export const addItemsToShoppingList = async (
   req: AuthenticatedRequest<
     { id: string },
     unknown,
@@ -515,7 +515,7 @@ exports.addItemsToShoppingList = async (
   }
 }
 
-exports.deleteShoppingList = async (
+export const deleteShoppingList = async (
   req: AuthenticatedRequest<{ id: string }>,
   res: Response
 ) => {

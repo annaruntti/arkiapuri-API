@@ -45,7 +45,7 @@ interface UpdatePantryItemBody {
 const parsePantryQuantity = (value: number | string | undefined): number =>
   parseQuantity(value, { fallback: 1, min: 0 })
 
-exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
+export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pantry = await getCanonicalPantry(req.user)
     await pantry.populate({ path: "items.foodId" })
@@ -112,7 +112,7 @@ exports.getPantry = async (req: AuthenticatedRequest, res: Response) => {
   }
 }
 
-exports.addFoodItemToPantry = async (
+export const addFoodItemToPantry = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -256,7 +256,7 @@ exports.addFoodItemToPantry = async (
   }
 }
 
-exports.updatePantryItem = async (
+export const updatePantryItem = async (
   req: AuthenticatedRequest<{ itemId: string }, unknown, UpdatePantryItemBody>,
   res: Response
 ) => {
@@ -327,7 +327,7 @@ exports.updatePantryItem = async (
   }
 }
 
-exports.removePantryItem = async (
+export const removePantryItem = async (
   req: AuthenticatedRequest<{ itemId: string }>,
   res: Response
 ) => {

@@ -1,14 +1,14 @@
 import { Router } from "express"
-const {
+import { isAuth } from "../middlewares/auth"
+import { mealUpload } from "../middlewares/uploadImage"
+import {
   createMeal,
   getMeals,
   updateMeal,
   deleteMeal,
   uploadMealImage,
   removeMealImage,
-} = require("../controllers/meal")
-import { isAuth } from "../middlewares/auth"
-import { mealUpload } from "../middlewares/uploadImage"
+} from "../controllers/meal"
 
 const router = Router()
 

@@ -19,7 +19,7 @@ const Invitation = resolveModule<Model<IInvitation>>(
   require("../models/invitation")
 )
 
-exports.createUser = async (
+export const createUser = async (
   req: Request<
     Record<string, string>,
     unknown,
@@ -87,7 +87,7 @@ exports.createUser = async (
   }
 }
 
-exports.userSignIn = async (
+export const userSignIn = async (
   req: Request<
     Record<string, string>,
     unknown,
@@ -140,7 +140,7 @@ exports.userSignIn = async (
   }
 }
 
-exports.uploadProfile = async (
+export const uploadProfile = async (
   req: AuthenticatedRequest & { file?: Express.Multer.File },
   res: Response
 ) => {
@@ -177,7 +177,7 @@ exports.uploadProfile = async (
   }
 }
 
-exports.signOut = async (req: AuthenticatedRequest, res: Response) => {
+export const signOut = async (req: AuthenticatedRequest, res: Response) => {
   // Stateless JWT auth: client discards the token. No server-side token store.
   if (!req.headers?.authorization) {
     return res
@@ -195,7 +195,7 @@ exports.signOut = async (req: AuthenticatedRequest, res: Response) => {
   res.json({ success: true, message: "Sign out successfully!" })
 }
 
-exports.getUserProfile = async (
+export const getUserProfile = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
@@ -224,7 +224,7 @@ exports.getUserProfile = async (
   }
 }
 
-exports.updateUserProfile = async (
+export const updateUserProfile = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -271,7 +271,7 @@ exports.updateUserProfile = async (
   }
 }
 
-exports.deleteUserAccount = async (
+export const deleteUserAccount = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
@@ -323,7 +323,7 @@ exports.deleteUserAccount = async (
   }
 }
 
-exports.uploadProfileImage = async (
+export const uploadProfileImage = async (
   req: AuthenticatedRequest & { file?: Express.Multer.File },
   res: Response
 ) => {

@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
-const { analyzeImage } = require("../controllers/vision")
+import { analyzeImage } from "../controllers/vision"
 
 const router = Router()
 

@@ -1,8 +1,8 @@
 import { Router } from "express"
+import { isAuth } from "../middlewares/auth"
+import * as openFoodFactsController from "../controllers/openFoodFacts"
 
 const router = Router()
-const { isAuth } = require("../middlewares/auth")
-const openFoodFactsController = require("../controllers/openFoodFacts")
 
 /**
  * @swagger

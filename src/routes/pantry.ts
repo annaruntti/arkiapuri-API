@@ -1,11 +1,11 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
-const {
+import {
   getPantry,
   addFoodItemToPantry,
   updatePantryItem,
   removePantryItem,
-} = require("../controllers/pantry")
+} from "../controllers/pantry"
 
 const router = Router()
 

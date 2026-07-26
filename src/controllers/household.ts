@@ -19,7 +19,7 @@ const Invitation = resolveModule<Model<IInvitation>>(
 )
 const { v4: uuidv4 } = require("uuid") as { v4: () => string }
 
-exports.createHousehold = async (
+export const createHousehold = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -68,7 +68,7 @@ exports.createHousehold = async (
   }
 }
 
-exports.getHousehold = async (req: AuthenticatedRequest, res: Response) => {
+export const getHousehold = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user._id
 
@@ -109,7 +109,7 @@ exports.getHousehold = async (req: AuthenticatedRequest, res: Response) => {
   }
 }
 
-exports.updateHousehold = async (
+export const updateHousehold = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -156,7 +156,7 @@ exports.updateHousehold = async (
   }
 }
 
-exports.inviteToHousehold = async (
+export const inviteToHousehold = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -270,7 +270,7 @@ exports.inviteToHousehold = async (
   }
 }
 
-exports.leaveHousehold = async (
+export const leaveHousehold = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
@@ -318,7 +318,7 @@ exports.leaveHousehold = async (
   }
 }
 
-exports.removeMember = async (
+export const removeMember = async (
   req: AuthenticatedRequest<{ memberId: string }>,
   res: Response
 ) => {
@@ -367,7 +367,7 @@ exports.removeMember = async (
   }
 }
 
-exports.updateMemberRole = async (
+export const updateMemberRole = async (
   req: AuthenticatedRequest<
     { memberId: string },
     unknown,
@@ -435,7 +435,7 @@ exports.updateMemberRole = async (
   }
 }
 
-exports.deleteHousehold = async (
+export const deleteHousehold = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
@@ -471,7 +471,7 @@ exports.deleteHousehold = async (
   }
 }
 
-exports.getInvitationByToken = async (
+export const getInvitationByToken = async (
   req: Request<{ token: string }>,
   res: Response
 ) => {
@@ -532,7 +532,7 @@ exports.getInvitationByToken = async (
   }
 }
 
-exports.acceptInvitation = async (
+export const acceptInvitation = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,

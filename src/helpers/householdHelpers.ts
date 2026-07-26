@@ -7,7 +7,7 @@ import mongoose from "mongoose"
  */
 export const populateUserHousehold = async (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   if (req.user && req.user.household) {

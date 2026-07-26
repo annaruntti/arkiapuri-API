@@ -1,6 +1,7 @@
-import { Router, Request, Response } from "express"
+import { Router, Request } from "express"
+import multer from "multer"
 import { isAuth } from "../middlewares/auth"
-const {
+import {
   createUser,
   userSignIn,
   uploadProfile,
@@ -9,20 +10,19 @@ const {
   updateUserProfile,
   deleteUserAccount,
   uploadProfileImage,
-} = require("../controllers/user")
+} from "../controllers/user"
 import {
   validateUserSignUp,
   userVlidation,
   validateUserSignIn,
 } from "../middlewares/validation/user"
-import multer from "multer"
 
 const router = Router()
 
 const storage = multer.diskStorage({})
 
 const fileFilter = (
-  req: Request,
+  _req: Request,
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {

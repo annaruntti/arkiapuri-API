@@ -141,7 +141,7 @@ const getPopulatedFoodName = (
   return foodId.name
 }
 
-exports.createFoodItem = async (
+export const createFoodItem = async (
   req: AuthenticatedRequest<Record<string, string>, FoodItemApiResponse, CreateFoodItemBody>,
   res: Response<FoodItemApiResponse>
 ) => {
@@ -183,7 +183,7 @@ exports.createFoodItem = async (
   }
 }
 
-exports.getFoodItems = async (
+export const getFoodItems = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     FoodItemApiResponse,
@@ -208,7 +208,7 @@ exports.getFoodItems = async (
   }
 }
 
-exports.updateFoodItem = async (
+export const updateFoodItem = async (
   req: AuthenticatedRequest<
     { id: string },
     FoodItemApiResponse,
@@ -236,7 +236,7 @@ exports.updateFoodItem = async (
   }
 }
 
-exports.deleteFoodItem = async (
+export const deleteFoodItem = async (
   req: AuthenticatedRequest<{ id: string }>,
   res: Response<FoodItemApiResponse>
 ) => {
@@ -263,7 +263,7 @@ exports.deleteFoodItem = async (
   }
 }
 
-exports.updateQuantity = async (
+export const updateQuantity = async (
   req: AuthenticatedRequest<
     { foodItemId: string },
     FoodItemApiResponse,
@@ -329,7 +329,7 @@ exports.updateQuantity = async (
   }
 }
 
-exports.moveItem = async (
+export const moveItem = async (
   req: AuthenticatedRequest<
     { foodItemId: string },
     FoodItemApiResponse,
@@ -388,7 +388,7 @@ exports.moveItem = async (
   }
 }
 
-exports.uploadFoodItemImage = async (
+export const uploadFoodItemImage = async (
   req: AuthenticatedRequest<{ foodItemId: string }> & {
     file?: Express.Multer.File
   },
@@ -469,7 +469,7 @@ exports.uploadFoodItemImage = async (
   }
 }
 
-exports.findOrCreateFoodItem = async (
+export const findOrCreateFoodItem = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     FoodItemApiResponse,
@@ -631,7 +631,7 @@ exports.findOrCreateFoodItem = async (
   }
 }
 
-exports.checkItemAvailability = async (
+export const checkItemAvailability = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     FoodItemApiResponse,
@@ -759,7 +759,7 @@ exports.checkItemAvailability = async (
   }
 }
 
-exports.removeFoodItemImage = async (
+export const removeFoodItemImage = async (
   req: AuthenticatedRequest<{ foodItemId: string }>,
   res: Response<FoodItemApiResponse>
 ) => {

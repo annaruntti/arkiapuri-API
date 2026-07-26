@@ -51,7 +51,7 @@ const mealAccessQuery = (user: AuthenticatedRequest["user"], mealId: string) => 
   ...getDataQuery(user, "user"),
 })
 
-exports.createMeal = async (
+export const createMeal = async (
   req: AuthenticatedRequest<Record<string, string>, unknown, CreateMealBody>,
   res: Response
 ) => {
@@ -166,7 +166,7 @@ exports.createMeal = async (
   }
 }
 
-exports.getMeals = async (req: AuthenticatedRequest, res: Response) => {
+export const getMeals = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const query = getDataQuery(req.user, "user")
     const meals = await Meal.find(query).populate({
@@ -180,7 +180,7 @@ exports.getMeals = async (req: AuthenticatedRequest, res: Response) => {
   }
 }
 
-exports.updateMeal = async (
+export const updateMeal = async (
   req: AuthenticatedRequest<{ mealId: string }, unknown, CreateMealBody>,
   res: Response
 ) => {
@@ -233,7 +233,7 @@ exports.updateMeal = async (
   }
 }
 
-exports.deleteMeal = async (
+export const deleteMeal = async (
   req: AuthenticatedRequest<{ mealId: string }>,
   res: Response
 ) => {
@@ -262,7 +262,7 @@ exports.deleteMeal = async (
   }
 }
 
-exports.uploadMealImage = async (
+export const uploadMealImage = async (
   req: AuthenticatedRequest<{ mealId: string }> & {
     file?: Express.Multer.File
   },
@@ -332,7 +332,7 @@ exports.uploadMealImage = async (
   }
 }
 
-exports.removeMealImage = async (
+export const removeMealImage = async (
   req: AuthenticatedRequest<{ mealId: string }>,
   res: Response
 ) => {

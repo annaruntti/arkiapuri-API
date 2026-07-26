@@ -8,7 +8,7 @@ const client = new vision.ImageAnnotatorClient({
   keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
 })
 
-exports.analyzeImage = async (
+export const analyzeImage = async (
   req: Request<Record<string, string>, unknown, { image?: string }>,
   res: Response
 ) => {

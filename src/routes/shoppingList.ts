@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
-const {
+import {
   createShoppingList,
   getShoppingLists,
   updateShoppingList,
@@ -8,7 +8,7 @@ const {
   markItemAsBought,
   addItemsToShoppingList,
   updateShoppingListItem,
-} = require("../controllers/shoppingList")
+} from "../controllers/shoppingList"
 
 const router = Router()
 

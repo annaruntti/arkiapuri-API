@@ -29,7 +29,7 @@ const asNumber = (value: unknown, fallback: number): number => {
 /**
  * Search products by barcode
  */
-exports.searchByBarcode = async (
+export const searchByBarcode = async (
   req: Request<{ barcode: string }>,
   res: Response
 ) => {
@@ -78,7 +78,7 @@ exports.searchByBarcode = async (
 /**
  * Search products by text query
  */
-exports.searchByText = async (
+export const searchByText = async (
   req: Request<
     Record<string, string>,
     unknown,
@@ -126,7 +126,7 @@ exports.searchByText = async (
 /**
  * Search products by category
  */
-exports.searchByCategory = async (
+export const searchByCategory = async (
   req: Request<
     { category: string },
     unknown,
@@ -173,7 +173,7 @@ exports.searchByCategory = async (
 /**
  * Get popular categories
  */
-exports.getCategories = async (_req: Request, res: Response) => {
+export const getCategories = async (_req: Request, res: Response) => {
   try {
     const categories = await openFoodFactsService.getPopularCategories()
 
@@ -194,7 +194,7 @@ exports.getCategories = async (_req: Request, res: Response) => {
 /**
  * Get product suggestions for autocomplete
  */
-exports.getSuggestions = async (
+export const getSuggestions = async (
   req: Request<
     Record<string, string>,
     unknown,
@@ -237,7 +237,7 @@ exports.getSuggestions = async (
 /**
  * Add Open Food Facts product to user's food items
  */
-exports.addToFoodItems = async (
+export const addToFoodItems = async (
   req: AuthenticatedRequest<
     { barcode: string },
     unknown,
@@ -384,7 +384,7 @@ exports.addToFoodItems = async (
 /**
  * Enrich existing food item with Open Food Facts data
  */
-exports.enrichFoodItem = async (
+export const enrichFoodItem = async (
   req: AuthenticatedRequest<
     { foodItemId: string },
     unknown,

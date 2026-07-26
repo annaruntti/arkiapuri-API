@@ -1,7 +1,7 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
 import { foodItemUpload } from "../middlewares/uploadImage"
-const {
+import {
   getFoodItems,
   createFoodItem,
   updateFoodItem,
@@ -12,7 +12,7 @@ const {
   removeFoodItemImage,
   findOrCreateFoodItem,
   checkItemAvailability,
-} = require("../controllers/foodItem")
+} from "../controllers/foodItem"
 
 const router = Router()
 
