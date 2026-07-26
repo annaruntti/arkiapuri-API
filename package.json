@@ -5,17 +5,17 @@
   "main": "dist/app.js",
   "scripts": {
     "start": "node dist/app.js",
-    "dev": "ts-node-dev --respawn --transpile-only app.ts",
-    "dev:once": "ts-node app.ts",
+    "dev": "tsx watch app.ts",
+    "dev:once": "tsx app.ts",
     "build": "tsc",
     "build:watch": "tsc --watch",
     "deploy": "npm run build && railway up",
-    "check-env": "ts-node -r dotenv/config src/utils/check-env.ts"
+    "check-env": "tsx -r dotenv/config src/utils/check-env.ts"
   },
   "author": "Anna Tiala",
   "license": "ISC",
   "dependencies": {
-    "@google-cloud/vision": "^4.3.3",
+    "@google-cloud/vision": "^5.3.7",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.8.0",
     "compression": "^1.8.0",
@@ -29,8 +29,8 @@
     "mongodb": "^3.7.4",
     "mongoose": "^8.17.0",
     "multer": "^2.0.2",
-    "nodemailer": "^7.0.6",
-    "sharp": "^0.33.4",
+    "nodemailer": "^9.0.3",
+    "sharp": "^0.35.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^13.0.0"
@@ -46,8 +46,21 @@
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/uuid": "^10.0.0",
-    "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.2"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "minimatch": "10.2.5",
+    "glob": "11.1.0",
+    "gaxios": {
+      "uuid": "11.1.1"
+    },
+    "google-gax": {
+      "uuid": "11.1.1"
+    },
+    "teeny-request": {
+      "uuid": "11.1.1"
+    }
   }
 }
