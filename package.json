@@ -5,12 +5,12 @@
   "main": "dist/app.js",
   "scripts": {
     "start": "node dist/app.js",
-    "dev": "tsx watch app.ts",
-    "dev:once": "tsx app.ts",
+    "dev": "tsx watch --env-file=.env app.ts",
+    "dev:once": "tsx --env-file=.env app.ts",
     "build": "tsc",
     "build:watch": "tsc --watch",
     "deploy": "npm run build && railway up",
-    "check-env": "tsx -r dotenv/config src/utils/check-env.ts"
+    "check-env": "tsx --env-file=.env src/utils/check-env.ts"
   },
   "author": "Anna Tiala",
   "license": "ISC",

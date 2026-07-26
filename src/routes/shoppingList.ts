@@ -6,6 +6,9 @@ import {
   updateShoppingList,
   deleteShoppingList,
   markItemAsBought,
+  moveItemToPantry,
+  setItemBought,
+  deleteShoppingListItem,
   addItemsToShoppingList,
   updateShoppingListItem,
 } from "../controllers/shoppingList"
@@ -22,6 +25,26 @@ router.put(
   isAuth,
   updateShoppingListItem
 )
-router.post("/shopping-lists/:listId/items/:itemId/bought", isAuth, markItemAsBought)
+router.patch(
+  "/shopping-lists/:listId/items/:itemId/bought",
+  isAuth,
+  setItemBought
+)
+router.post(
+  "/shopping-lists/:listId/items/:itemId/move-to-pantry",
+  isAuth,
+  moveItemToPantry
+)
+router.delete(
+  "/shopping-lists/:listId/items/:itemId",
+  isAuth,
+  deleteShoppingListItem
+)
+/** Legacy: same as move-to-pantry */
+router.post(
+  "/shopping-lists/:listId/items/:itemId/bought",
+  isAuth,
+  markItemAsBought
+)
 
 export default router

@@ -30,6 +30,8 @@ export interface IFoodItemOpenFoodFacts {
 
 export interface IFoodItem extends Document {
   name: string
+  /** false = non-food product (shopping list only; no nutrition/categories) */
+  isFood: boolean
   category: string[]
   unit: string
   packageQuantity?: number
@@ -61,6 +63,10 @@ const foodItemSchema = new Schema<IFoodItem>(
       type: String,
       required: true,
       trim: true,
+    },
+    isFood: {
+      type: Boolean,
+      default: true,
     },
     category: {
       type: [String],

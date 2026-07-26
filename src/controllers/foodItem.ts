@@ -28,6 +28,7 @@ interface FoodItemQuantitiesInput {
 
 interface CreateFoodItemBody {
   name: string
+  isFood?: boolean
   category?: string[]
   price?: number
   calories?: number
@@ -40,6 +41,7 @@ interface CreateFoodItemBody {
 
 interface UpdateFoodItemBody {
   name?: string
+  isFood?: boolean
   category?: string[]
   unit?: string
   price?: number
@@ -51,6 +53,7 @@ interface UpdateFoodItemBody {
 
 interface FindOrCreateFoodItemBody {
   name: string
+  isFood?: boolean
   category?: string[]
   unit?: string
   price?: number
@@ -106,6 +109,32 @@ type PopulatedFoodRef = Pick<IFoodItem, "_id" | "name">
 
 const FOOD_LOCATIONS: FoodLocation[] = ["meal", "shopping-list", "pantry"]
 
+const resolveIsFood = (value: unknown, fallback = true): boolean => {
+  if (value === false || value === "false") return false
+  if (value === true || value === "true") return true
+  return fallback
+}
+
+const sanitizeFoodFields = <
+  T extends {
+    isFood?: boolean
+    category?: string[]
+    calories?: number
+    expirationDate?: string | Date | null
+  },
+>(
+  fields: T,
+  isFood: boolean
+): T => {
+  if (isFood) return fields
+  return {
+    ...fields,
+    category: [],
+    calories: 0,
+    expirationDate: undefined,
+  }
+}
+
 const parseFoodItemQuantity = (value: string | number | undefined): number =>
   parseQuantity(value, { fallback: 0 })
 
@@ -148,6 +177,7 @@ export const createFoodItem = async (
   try {
     const {
       name,
+      isFood: isFoodBody,
       category,
       price,
       calories,
@@ -158,14 +188,23 @@ export const createFoodItem = async (
       location: _location,
     } = req.body
 
+    const isFood = resolveIsFood(isFoodBody, true)
+    const safeFields = sanitizeFoodFields(
+      { category, calories, expirationDate },
+      isFood
+    )
+
     const foodItem = new FoodItem({
       name,
-      category: category || [],
+      isFood,
+      category: safeFields.category || [],
       price,
-      calories,
+      calories: safeFields.calories,
       user: req.user._id,
-      expirationDate,
-      locations: resolveLocationsFromBody(req.body),
+      expirationDate: safeFields.expirationDate,
+      locations: isFood
+        ? resolveLocationsFromBody(req.body)
+        : ["shopping-list"],
       quantities: buildQuantitiesFromBody(req.body),
       unit: unit || "kpl",
     })
@@ -478,8 +517,18 @@ export const findOrCreateFoodItem = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const { name, category, unit, price, calories, location, quantities } =
-      req.body
+    const {
+      name,
+      isFood: isFoodBody,
+      category,
+      unit,
+      price,
+      calories,
+      location,
+      quantities,
+    } = req.body
+
+    const isFood = resolveIsFood(isFoodBody, true)
 
     if (!name) {
       return res.status(400).json({
@@ -497,8 +546,12 @@ export const findOrCreateFoodItem = async (
 
     const normalizedSearchName = normalizeName(name)
 
+    const matchesIsFood = (item: IFoodItem) =>
+      resolveIsFood(item.isFood, true) === isFood
+
     let existingFoodItem: IFoodItem | null = await FoodItem.findOne({
       user: req.user._id,
+      isFood: isFood ? { $ne: false } : false,
       $expr: {
         $eq: [
           { $toLower: { $trim: { input: "$name" } } },
@@ -510,6 +563,7 @@ export const findOrCreateFoodItem = async (
     if (!existingFoodItem) {
       const allFoodItems: IFoodItem[] = await FoodItem.find({
         user: req.user._id,
+        isFood: isFood ? { $ne: false } : false,
       })
       const threshold = 0.8
 
@@ -527,6 +581,7 @@ export const findOrCreateFoodItem = async (
       }
 
       for (const item of allFoodItems) {
+        if (!matchesIsFood(item)) continue
         const normalizedItemName = normalizeName(item.name)
         const similarity = calculateSimilarity(
           normalizedSearchName,
@@ -551,7 +606,7 @@ export const findOrCreateFoodItem = async (
         }
       }
 
-      if (category?.length) {
+      if (isFood && category?.length) {
         existingFoodItem.category = [
           ...new Set([...(existingFoodItem.category || []), ...category]),
         ]
@@ -563,7 +618,7 @@ export const findOrCreateFoodItem = async (
             ? (existingFoodItem.price + price) / 2
             : price
       }
-      if (calories !== undefined && calories > 0) {
+      if (isFood && calories !== undefined && calories > 0) {
         existingFoodItem.calories =
           existingFoodItem.calories && existingFoodItem.calories > 0
             ? (existingFoodItem.calories + calories) / 2
@@ -584,17 +639,24 @@ export const findOrCreateFoodItem = async (
       })
     }
 
+    const safeFields = sanitizeFoodFields(
+      { category, calories, expirationDate: undefined },
+      isFood
+    )
+
     const foodItem = new FoodItem({
       name,
-      category: category || [],
+      isFood,
+      category: safeFields.category || [],
       unit: unit || "kpl",
       price: price || 0,
-      calories: calories || 0,
+      calories: safeFields.calories || 0,
       user: req.user._id,
-      locations: location ? [location] : ["meal"],
-      // NOTE: fallback must be 0, not parseQuantity's default of 1 — a
-      // caller passing a partial `quantities` object (e.g. only `pantry`)
-      // must not have the omitted locations silently default to 1.
+      locations: isFood
+        ? location
+          ? [location]
+          : ["meal"]
+        : ["shopping-list"],
       quantities: quantities
         ? {
             meal: parseQuantity(quantities.meal, { fallback: 0 }),
@@ -605,7 +667,7 @@ export const findOrCreateFoodItem = async (
           }
         : {
             meal: location === "meal" ? 1 : 0,
-            "shopping-list": location === "shopping-list" ? 1 : 0,
+            "shopping-list": location === "shopping-list" || !isFood ? 1 : 0,
             pantry: location === "pantry" ? 1 : 0,
           },
     })

@@ -2,6 +2,8 @@ import mongoose, { Document, Schema } from "mongoose"
 
 export interface IShoppingListItem extends Document {
   name: string
+  /** false = non-food; cannot move to pantry */
+  isFood: boolean
   estimatedPrice?: number
   price?: number
   quantity: number
@@ -27,6 +29,10 @@ const shoppingListItemSchema = new Schema<IShoppingListItem>({
   name: {
     type: String,
     required: true,
+  },
+  isFood: {
+    type: Boolean,
+    default: true,
   },
   estimatedPrice: {
     type: Number,
