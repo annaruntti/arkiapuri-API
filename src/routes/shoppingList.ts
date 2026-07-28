@@ -7,6 +7,7 @@ import {
   deleteShoppingList,
   markItemAsBought,
   moveItemToPantry,
+  moveItemsToPantry,
   setItemBought,
   deleteShoppingListItem,
   addItemsToShoppingList,
@@ -29,6 +30,11 @@ router.patch(
   "/shopping-lists/:listId/items/:itemId/bought",
   isAuth,
   setItemBought
+)
+router.post(
+  "/shopping-lists/:listId/items/move-to-pantry",
+  isAuth,
+  moveItemsToPantry
 )
 router.post(
   "/shopping-lists/:listId/items/:itemId/move-to-pantry",
