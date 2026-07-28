@@ -5,14 +5,15 @@ export type NutritionGrade = "a" | "b" | "c" | "d" | "e"
 export type NovaGroup = 1 | 2 | 3 | 4
 
 export interface IFoodItemNutrition {
-  proteins: number
-  carbohydrates: number
-  sugars: number
-  fat: number
-  saturatedFat: number
-  fiber: number
-  sodium: number
-  salt: number
+  calories?: number
+  proteins?: number
+  carbohydrates?: number
+  sugars?: number
+  fat?: number
+  saturatedFat?: number
+  fiber?: number
+  sodium?: number
+  salt?: number
 }
 
 export interface IFoodItemOpenFoodFacts {
@@ -37,6 +38,8 @@ export interface IFoodItem extends Document {
   packageQuantity?: number
   price?: number
   calories?: number
+  /** Manual / editable nutrition per 100g/ml (also used for non-OFF items) */
+  nutrition?: IFoodItemNutrition
   user: mongoose.Types.ObjectId
   locations: FoodLocation[]
   quantities: {
@@ -85,6 +88,17 @@ const foodItemSchema = new Schema<IFoodItem>(
     },
     calories: {
       type: Number,
+    },
+    nutrition: {
+      calories: { type: Number },
+      proteins: { type: Number },
+      carbohydrates: { type: Number },
+      sugars: { type: Number },
+      fat: { type: Number },
+      saturatedFat: { type: Number },
+      fiber: { type: Number },
+      sodium: { type: Number },
+      salt: { type: Number },
     },
     user: {
       type: Schema.Types.ObjectId,

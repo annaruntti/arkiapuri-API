@@ -21,7 +21,7 @@ const User = resolveModule<IUserModel>(require("../models/user"))
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
 const FOOD_ITEM_SELECT =
-  "name unit category calories price quantities locations image"
+  "name unit category calories price quantities locations image nutrition openFoodFactsData"
 
 const VALID_ROLES: MealRole[] = [
   "breakfast",

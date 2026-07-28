@@ -228,12 +228,20 @@ export const updateUserProfile = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
-    { username?: string; currentPassword?: string; newPassword?: string }
+    {
+      username?: string
+      currentPassword?: string
+      newPassword?: string
+      preferences?: {
+        showNutrition?: boolean
+        personalizationCompleted?: boolean
+      }
+    }
   >,
   res: Response
 ) => {
   try {
-    const { username, currentPassword, newPassword } = req.body
+    const { username, currentPassword, newPassword, preferences } = req.body
     const userId = req.user._id
 
     const user = await User.findById(userId)
@@ -254,6 +262,23 @@ export const updateUserProfile = async (
         })
       }
       user.password = newPassword
+    }
+
+    if (preferences && typeof preferences === "object") {
+      if (!user.preferences) {
+        user.preferences = {
+          showNutrition: true,
+          personalizationCompleted: false,
+        }
+      }
+      if (typeof preferences.showNutrition === "boolean") {
+        user.preferences.showNutrition = preferences.showNutrition
+      }
+      if (typeof preferences.personalizationCompleted === "boolean") {
+        user.preferences.personalizationCompleted =
+          preferences.personalizationCompleted
+      }
+      user.markModified("preferences")
     }
 
     await user.save()

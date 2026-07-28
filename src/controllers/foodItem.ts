@@ -32,6 +32,7 @@ interface CreateFoodItemBody {
   category?: string[]
   price?: number
   calories?: number
+  nutrition?: IFoodItem["nutrition"]
   location?: FoodLocation
   locations?: FoodLocation[]
   expirationDate?: string | Date | null
@@ -46,6 +47,7 @@ interface UpdateFoodItemBody {
   unit?: string
   price?: number
   calories?: number
+  nutrition?: IFoodItem["nutrition"]
   locations?: FoodLocation[]
   quantities?: IFoodItem["quantities"]
   expirationDate?: string | Date | null
@@ -120,6 +122,7 @@ const sanitizeFoodFields = <
     isFood?: boolean
     category?: string[]
     calories?: number
+    nutrition?: IFoodItem["nutrition"]
     expirationDate?: string | Date | null
   },
 >(
@@ -131,7 +134,40 @@ const sanitizeFoodFields = <
     ...fields,
     category: [],
     calories: 0,
+    nutrition: undefined,
     expirationDate: undefined,
+  }
+}
+
+const normalizeNutrition = (
+  nutrition: IFoodItem["nutrition"] | undefined,
+  calories?: number
+): { calories?: number; nutrition?: IFoodItem["nutrition"] } => {
+  if (!nutrition && (calories === undefined || calories === null)) {
+    return { calories }
+  }
+
+  const normalized: IFoodItem["nutrition"] = {
+    ...(nutrition || {}),
+  }
+  const resolvedCalories =
+    calories !== undefined && calories !== null
+      ? Number(calories) || 0
+      : normalized.calories !== undefined
+        ? Number(normalized.calories) || 0
+        : undefined
+
+  if (resolvedCalories !== undefined) {
+    normalized.calories = resolvedCalories
+  }
+
+  const hasAnyValue = Object.values(normalized).some(
+    (value) => typeof value === "number" && !Number.isNaN(value)
+  )
+
+  return {
+    calories: resolvedCalories,
+    nutrition: hasAnyValue ? normalized : undefined,
   }
 }
 
@@ -181,6 +217,7 @@ export const createFoodItem = async (
       category,
       price,
       calories,
+      nutrition,
       expirationDate,
       unit,
       quantities: _quantities,
@@ -189,8 +226,14 @@ export const createFoodItem = async (
     } = req.body
 
     const isFood = resolveIsFood(isFoodBody, true)
+    const nutritionFields = normalizeNutrition(nutrition, calories)
     const safeFields = sanitizeFoodFields(
-      { category, calories, expirationDate },
+      {
+        category,
+        calories: nutritionFields.calories,
+        nutrition: nutritionFields.nutrition,
+        expirationDate,
+      },
       isFood
     )
 
@@ -200,6 +243,7 @@ export const createFoodItem = async (
       category: safeFields.category || [],
       price,
       calories: safeFields.calories,
+      nutrition: safeFields.nutrition,
       user: req.user._id,
       expirationDate: safeFields.expirationDate,
       locations: isFood
@@ -256,9 +300,38 @@ export const updateFoodItem = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
+    const updates: UpdateFoodItemBody = { ...req.body }
+
+    if (updates.nutrition !== undefined || updates.calories !== undefined) {
+      const nutritionFields = normalizeNutrition(
+        updates.nutrition,
+        updates.calories
+      )
+      updates.calories = nutritionFields.calories
+      updates.nutrition = nutritionFields.nutrition
+    }
+
+    if (updates.isFood !== undefined) {
+      const isFood = resolveIsFood(updates.isFood, true)
+      const sanitized = sanitizeFoodFields(
+        {
+          category: updates.category,
+          calories: updates.calories,
+          nutrition: updates.nutrition,
+          expirationDate: updates.expirationDate,
+        },
+        isFood
+      )
+      updates.category = sanitized.category
+      updates.calories = sanitized.calories
+      updates.nutrition = sanitized.nutrition
+      updates.expirationDate = sanitized.expirationDate
+      updates.isFood = isFood
+    }
+
     const foodItem = await FoodItem.findOneAndUpdate(
       { _id: req.params.id, user: req.user._id },
-      req.body,
+      updates,
       { new: true }
     )
 
@@ -555,44 +628,24 @@ export const findOrCreateFoodItem = async (
       $expr: {
         $eq: [
           { $toLower: { $trim: { input: "$name" } } },
-          normalizedSearchName,
+          name.toLowerCase().trim(),
         ],
       },
     })
 
+    // Exact normalized match only (no fuzzy). Character-overlap scoring
+    // previously merged unrelated names (e.g. ranskankerma → mansikkamehu).
     if (!existingFoodItem) {
-      const allFoodItems: IFoodItem[] = await FoodItem.find({
+      const candidates: IFoodItem[] = await FoodItem.find({
         user: req.user._id,
         isFood: isFood ? { $ne: false } : false,
       })
-      const threshold = 0.8
-
-      const calculateSimilarity = (str1: string, str2: string): number => {
-        const longer = str1.length > str2.length ? str1 : str2
-        const shorter = str1.length > str2.length ? str2 : str1
-        if (longer.length === 0) return 1.0
-        if (longer.includes(shorter)) return 0.9
-
-        let matches = 0
-        for (let i = 0; i < shorter.length; i++) {
-          if (longer.includes(shorter[i])) matches++
-        }
-        return matches / longer.length
-      }
-
-      for (const item of allFoodItems) {
-        if (!matchesIsFood(item)) continue
-        const normalizedItemName = normalizeName(item.name)
-        const similarity = calculateSimilarity(
-          normalizedSearchName,
-          normalizedItemName
-        )
-
-        if (similarity >= threshold) {
-          existingFoodItem = item
-          break
-        }
-      }
+      existingFoodItem =
+        candidates.find(
+          (item) =>
+            matchesIsFood(item) &&
+            normalizeName(item.name) === normalizedSearchName
+        ) || null
     }
 
     if (existingFoodItem) {

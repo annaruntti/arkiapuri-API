@@ -1,5 +1,10 @@
 import mongoose, { Document, Model, Schema } from "mongoose"
 
+export interface IUserPreferences {
+  showNutrition: boolean
+  personalizationCompleted: boolean
+}
+
 export interface IUser extends Document {
   username?: string
   name?: string
@@ -17,6 +22,7 @@ export interface IUser extends Document {
     url?: string
     publicId?: string
   }
+  preferences: IUserPreferences
   resetPasswordToken?: string
   resetPasswordExpiry?: Date
   household?: mongoose.Types.ObjectId | null
@@ -78,6 +84,16 @@ const userSchema = new Schema<IUser>(
     profileImage: {
       url: String,
       publicId: String,
+    },
+    preferences: {
+      showNutrition: {
+        type: Boolean,
+        default: true,
+      },
+      personalizationCompleted: {
+        type: Boolean,
+        default: false,
+      },
     },
     resetPasswordToken: String,
     resetPasswordExpiry: Date,
