@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express"
 import jwt from "jsonwebtoken"
 import crypto from "crypto"
-import nodemailer from "nodemailer"
 import User from "../models/user"
+import { sendPasswordResetEmail } from "../services/emailService"
 
 const router = Router()
 
@@ -350,10 +350,14 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 
     const user = await User.findOne({ email: email.toLowerCase() })
 
+    // Always return a generic success message to avoid email enumeration
+    const genericSuccessMessage =
+      "Jos sähköpostiosoite löytyy järjestelmästä, lähetämme ohjeet salasanan vaihtamiseen."
+
     if (!user) {
       return res.status(200).json({
         success: true,
-        message: "Jos sähköpostiosoite löytyy järjestelmästä, lähetämme ohjeet salasanan vaihtamiseen.",
+        message: genericSuccessMessage,
       })
     }
 
@@ -364,38 +368,45 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
     user.resetPasswordExpiry = resetTokenExpiry
     await user.save()
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+    const appUrl = process.env.WEB_URL || process.env.APP_URL || "http://localhost:8081"
+    const resetUrl = `${appUrl.replace(/\/$/, "")}/reset-password?token=${resetToken}`
+
+    const emailResult = await sendPasswordResetEmail({
+      to: user.email,
+      name: user.username || user.name,
+      resetUrl,
     })
 
-    const resetUrl = `${process.env.APP_URL}/reset-password?token=${resetToken}`
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-      to: user.email,
-      subject: "Arkiapuri - Salasanan vaihto",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #9C86FC;">Salasanan vaihto</h2>
-          <p>Hei ${user.name},</p>
-          <p>Olet pyytänyt salasanan vaihtoa Arkiapuri-sovellukseen.</p>
-          <p>Klikkaa alla olevaa linkkiä vaihtaaksesi salasanasi:</p>
-          <a href="${resetUrl}" style="display: inline-block; background-color: #9C86FC; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 16px 0;">
-            Vaihda salasana
-          </a>
-          <p>Tämä linkki on voimassa 1 tunnin ajan.</p>
-          <p>Jos et pyytänyt salasanan vaihtoa, voit jättää tämän viestin huomiotta.</p>
-          <p>Ystävällisin terveisin,<br>Arkiapuri-tiimi</p>
-        </div>
-      `,
+    if (!emailResult.success) {
+      // Token is saved; in development expose reset link for local testing
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          "[dev] Password reset email was not sent. Use this link to reset:",
+          emailResult.previewUrl || resetUrl
+        )
+        return res.status(503).json({
+          success: false,
+          emailSent: false,
+          message:
+            "Sähköpostia ei voitu lähettää (SMTP-virhe). Tarkista EMAIL_USER ja EMAIL_PASSWORD. Kehitystilassa reset-linkki on palvelimen lokissa.",
+          previewUrl: emailResult.previewUrl || resetUrl,
+          error: emailResult.error || emailResult.message,
+        })
+      }
+
+      return res.status(500).json({
+        success: false,
+        emailSent: false,
+        message:
+          "Sähköpostin lähettäminen epäonnistui. Yritä myöhemmin uudelleen.",
+      })
     }
 
-    await transporter.sendMail(mailOptions)
-
-    res.status(200).json({ success: true, message: "Ohjeet salasanan vaihtamiseen on lähetetty sähköpostiisi." })
+    res.status(200).json({
+      success: true,
+      emailSent: true,
+      message: "Ohjeet salasanan vaihtamiseen on lähetetty sähköpostiisi.",
+    })
   } catch (error) {
     console.error("Forgot password error:", error)
     res.status(500).json({ success: false, message: "Palvelinvirhe. Yritä myöhemmin uudelleen." })
