@@ -84,8 +84,38 @@ export const flattenMealFoodItems = <T extends { foodItems?: unknown }>(
     Array.isArray(obj.foodItems) ? obj.foodItems : []
   ) as PopulatedIngredient[]
 
+  const parseDefaultRoles = (value: unknown): string[] => {
+    const roles: string[] = []
+    const visit = (entry: unknown) => {
+      if (entry == null || entry === "") return
+      if (Array.isArray(entry)) {
+        entry.forEach(visit)
+        return
+      }
+      if (typeof entry !== "string") return
+      const trimmed = entry.trim()
+      if (
+        (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+      ) {
+        try {
+          visit(JSON.parse(trimmed))
+          return
+        } catch {
+          // Treat as a plain role string
+        }
+      }
+      roles.push(trimmed)
+    }
+    visit(value)
+    return roles.length > 0 ? roles : ["dinner"]
+  }
+
   return {
     ...obj,
+    defaultRoles: parseDefaultRoles(
+      (obj as T & { defaultRoles?: unknown }).defaultRoles
+    ),
     foodItems: rows.map((row) => {
       const catalog =
         row.foodId && typeof row.foodId === "object" && "name" in row.foodId
