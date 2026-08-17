@@ -314,10 +314,6 @@ export const addToFoodItems = async (
         : mapped.packageQuantity || 1
 
     if (existingFoodItem) {
-      existingFoodItem.quantities[
-        location as keyof typeof existingFoodItem.quantities
-      ] += parsedQuantity
-
       applyMappedOpenFoodFactsToFoodItem(existingFoodItem, mapped, "merge")
 
       await existingFoodItem.save()
@@ -346,10 +342,9 @@ export const addToFoodItems = async (
       user: req.user._id,
       image: mapped.image,
       quantities: {
-        meal: location === "meal" ? parsedQuantity : 0,
-        "shopping-list":
-          location === "shopping-list" ? parsedQuantity : 0,
-        pantry: location === "pantry" ? parsedQuantity : 0,
+        meal: 0,
+        "shopping-list": 0,
+        pantry: 0,
       },
       openFoodFactsData: mapped.openFoodFactsData,
     }

@@ -433,16 +433,7 @@ const transferShoppingItemToPantryDoc = async (
     })
 
     if (foodItem) {
-      if (!foodItem.locations.includes("pantry")) {
-        foodItem.locations.push("pantry")
-      }
       foodItem.unit = unit
-      foodItem.quantities.pantry =
-        (foodItem.quantities.pantry || 0) + pantryQty
-      foodItem.quantities["shopping-list"] = Math.max(
-        0,
-        (foodItem.quantities["shopping-list"] || 0) - pantryQty
-      )
       await foodItem.save()
     }
   }
@@ -596,24 +587,6 @@ const moveShoppingListItemsToPantryInternal = async (
   ])
 
   if (removeIdSet.size > 0) {
-    for (const item of nonFoodToRemove) {
-      const qty = parseQuantity(item.quantity)
-      const resolvedFoodId = resolveItemFoodId(item.foodId)
-      if (resolvedFoodId) {
-        const foodItem = await FoodItem.findOne({
-          _id: resolvedFoodId,
-          user: user._id,
-        })
-        if (foodItem) {
-          foodItem.quantities["shopping-list"] = Math.max(
-            0,
-            (foodItem.quantities["shopping-list"] || 0) - qty
-          )
-          await foodItem.save()
-        }
-      }
-    }
-
     for (let i = shoppingList.items.length - 1; i >= 0; i -= 1) {
       const itemId = normalizeDocId(shoppingList.items[i]?._id)
       if (removeIdSet.has(itemId)) {
@@ -711,22 +684,6 @@ export const deleteShoppingListItem = async (
     }
 
     const item = shoppingList.items[itemIndex]
-    const qty = parseQuantity(item.quantity)
-    const resolvedFoodId = resolveItemFoodId(item.foodId)
-
-    if (resolvedFoodId) {
-      const foodItem = await FoodItem.findOne({
-        _id: resolvedFoodId,
-        user: req.user._id,
-      })
-      if (foodItem) {
-        foodItem.quantities["shopping-list"] = Math.max(
-          0,
-          (foodItem.quantities["shopping-list"] || 0) - qty
-        )
-        await foodItem.save()
-      }
-    }
 
     shoppingList.items.splice(itemIndex, 1)
     shoppingList.totalEstimatedPrice = shoppingList.items.reduce(

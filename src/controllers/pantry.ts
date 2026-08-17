@@ -25,7 +25,6 @@ interface AddFoodItemToPantryBody {
   price?: number
   calories?: number
   expirationDate?: string | Date
-  quantities?: IFoodItem["quantities"]
   foodId?: string
 }
 
@@ -129,7 +128,6 @@ export const addFoodItemToPantry = async (
       price,
       calories,
       expirationDate,
-      quantities,
       foodId,
     } = req.body
 
@@ -172,11 +170,11 @@ export const addFoodItemToPantry = async (
         price,
         calories,
         user: req.user._id,
-        locations: ["pantry"],
-        quantities: quantities || {
+        locations: [],
+        quantities: {
           meal: 0,
           "shopping-list": 0,
-          pantry: pantryQty,
+          pantry: 0,
         },
       })
       await foodItem.save()
@@ -185,22 +183,6 @@ export const addFoodItemToPantry = async (
       if (unit) foodItem.unit = unit
       if (price !== undefined) foodItem.price = price
       if (calories !== undefined) foodItem.calories = calories
-      if (!foodItem.locations.includes("pantry")) {
-        foodItem.locations.push("pantry")
-      }
-      if (quantities) {
-        foodItem.quantities = {
-          ...foodItem.quantities,
-          ...quantities,
-          pantry:
-            quantities.pantry !== undefined
-              ? quantities.pantry
-              : (foodItem.quantities.pantry || 0) + pantryQty,
-        }
-      } else {
-        foodItem.quantities.pantry =
-          (foodItem.quantities.pantry || 0) + pantryQty
-      }
       await foodItem.save()
     }
 

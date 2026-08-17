@@ -15,6 +15,13 @@ export type MealCategory =
   | "vegetarian"
   | "other"
 
+export interface IMealIngredient {
+  foodId: mongoose.Types.ObjectId
+  quantity: number
+  unit: string
+  _id?: mongoose.Types.ObjectId
+}
+
 export interface IMeal extends Document {
   name: string
   recipe?: string
@@ -25,7 +32,7 @@ export interface IMeal extends Document {
   plannedCookingDate?: Date
   plannedEatingDates: Date[]
   createdAt: Date
-  foodItems: mongoose.Types.ObjectId[]
+  foodItems: IMealIngredient[]
   user: mongoose.Types.ObjectId
   household?: mongoose.Types.ObjectId | null
   image?: {
@@ -33,6 +40,27 @@ export interface IMeal extends Document {
     publicId?: string
   }
 }
+
+const mealIngredientSchema = new Schema<IMealIngredient>(
+  {
+    foodId: {
+      type: Schema.Types.ObjectId,
+      ref: "FoodItem",
+      required: true,
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 1,
+    },
+    unit: {
+      type: String,
+      default: "kpl",
+    },
+  },
+  { _id: false }
+)
 
 const mealSchema = new Schema<IMeal>({
   name: {
@@ -119,12 +147,10 @@ const mealSchema = new Schema<IMeal>({
     type: Date,
     default: Date.now,
   },
-  foodItems: [
-    {
-      type: Schema.Types.ObjectId,
-      ref: "FoodItem",
-    },
-  ],
+  foodItems: {
+    type: [mealIngredientSchema],
+    default: [],
+  },
   user: {
     type: Schema.Types.ObjectId,
     ref: "User",
@@ -142,5 +168,7 @@ const mealSchema = new Schema<IMeal>({
 })
 
 mealSchema.set("toJSON", { getters: true })
+mealSchema.set("toObject", { getters: true })
 
+delete mongoose.models.Meal
 export default mongoose.model<IMeal>("Meal", mealSchema)

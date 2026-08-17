@@ -15,13 +15,20 @@ import {
   getDataOwnership,
   getDataQuery,
 } from "../helpers/householdHelpers"
+import {
+  flattenMealFoodItems,
+  MEAL_FOOD_CATALOG_SELECT,
+  normalizeMealIngredientInputs,
+} from "../helpers/mealIngredients"
 
 const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 const User = resolveModule<IUserModel>(require("../models/user"))
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
-const FOOD_ITEM_SELECT =
-  "name unit category calories price quantities locations image nutrition openFoodFactsData"
+const FOOD_ITEM_POPULATE = {
+  path: "foodItems.foodId",
+  select: MEAL_FOOD_CATALOG_SELECT,
+}
 
 const VALID_ROLES: MealRole[] = [
   "breakfast",
@@ -38,7 +45,15 @@ interface CreateMealBody {
   recipe?: string
   difficultyLevel?: "easy" | "medium" | "hard"
   cookingTime?: number
-  foodItems?: string[]
+  foodItems?: Array<
+    | string
+    | {
+        foodId?: string
+        _id?: string
+        quantity?: number | string
+        unit?: string
+      }
+  >
   defaultRoles?: string[]
   mealCategory?: IMeal["mealCategory"]
   plannedCookingDate?: string
@@ -122,17 +137,19 @@ export const createMeal = async (
       })
     }
 
-    if (foodItems && foodItems.length > 0) {
-      const foodItemQuery = {
-        _id: { $in: foodItems },
-        ...getDataQuery(req.user, "user"),
-      }
-      const validFoodItems = await FoodItem.find(foodItemQuery)
+    const ingredientRows = normalizeMealIngredientInputs(foodItems)
 
-      if (validFoodItems.length !== foodItems.length) {
+    if (ingredientRows.length > 0) {
+      const foodItemIds = ingredientRows.map((row) => row.foodId)
+      const uniqueIds = [...new Set(foodItemIds)]
+      const validFoodItems = await FoodItem.find({
+        _id: { $in: uniqueIds },
+      })
+
+      if (validFoodItems.length !== uniqueIds.length) {
         return res.status(400).json({
           success: false,
-          message: "Invalid food items or food items don't belong to user",
+          message: "Invalid food items",
         })
       }
     }
@@ -166,7 +183,7 @@ export const createMeal = async (
       recipe,
       difficultyLevel,
       cookingTime,
-      foodItems,
+      foodItems: ingredientRows,
       defaultRoles,
       mealCategory,
       plannedCookingDate,
@@ -182,12 +199,11 @@ export const createMeal = async (
       $push: { meals: meal._id },
     })
 
-    const populatedMeal = await Meal.findById(meal._id).populate({
-      path: "foodItems",
-      select: FOOD_ITEM_SELECT,
-    })
+    const populatedMeal = await Meal.findById(meal._id).populate(
+      FOOD_ITEM_POPULATE
+    )
 
-    res.json({ success: true, meal: populatedMeal })
+    res.json({ success: true, meal: flattenMealFoodItems(populatedMeal) })
   } catch (error: unknown) {
     console.error("Error creating meal:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })
@@ -197,11 +213,11 @@ export const createMeal = async (
 export const getMeals = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const query = getDataQuery(req.user, "user")
-    const meals = await Meal.find(query).populate({
-      path: "foodItems",
-      select: FOOD_ITEM_SELECT,
+    const meals = await Meal.find(query).populate(FOOD_ITEM_POPULATE)
+    res.json({
+      success: true,
+      meals: meals.map((meal) => flattenMealFoodItems(meal)),
     })
-    res.json({ success: true, meals })
   } catch (error: unknown) {
     console.error("Error getting meals:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -268,14 +284,29 @@ export const updateMeal = async (
       }
     }
 
+    if (updateData.foodItems !== undefined) {
+      const ingredientRows = normalizeMealIngredientInputs(updateData.foodItems)
+      if (ingredientRows.length > 0) {
+        const foodItemIds = ingredientRows.map((row) => row.foodId)
+        const uniqueIds = [...new Set(foodItemIds)]
+        const validFoodItems = await FoodItem.find({
+          _id: { $in: uniqueIds },
+        })
+        if (validFoodItems.length !== uniqueIds.length) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid food items",
+          })
+        }
+      }
+      updateData.foodItems = ingredientRows as CreateMealBody["foodItems"]
+    }
+
     const updatedMeal = await Meal.findOneAndUpdate(accessQuery, updateData, {
       new: true,
-    }).populate({
-      path: "foodItems",
-      select: FOOD_ITEM_SELECT,
-    })
+    }).populate(FOOD_ITEM_POPULATE)
 
-    res.json({ success: true, meal: updatedMeal })
+    res.json({ success: true, meal: flattenMealFoodItems(updatedMeal) })
   } catch (error: unknown) {
     console.error("Error updating meal:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })
@@ -357,14 +388,11 @@ export const uploadMealImage = async (
           },
         },
         { new: true }
-      ).populate({
-        path: "foodItems",
-        select: FOOD_ITEM_SELECT,
-      })
+      ).populate(FOOD_ITEM_POPULATE)
 
       fs.unlinkSync(req.file.path)
 
-      res.json({ success: true, meal: updatedMeal })
+      res.json({ success: true, meal: flattenMealFoodItems(updatedMeal) })
     } catch (uploadError: unknown) {
       if (req.file.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)
@@ -417,12 +445,9 @@ export const removeMealImage = async (
         mealId,
         { $unset: { image: 1 } },
         { new: true }
-      ).populate({
-        path: "foodItems",
-        select: FOOD_ITEM_SELECT,
-      })
+      ).populate(FOOD_ITEM_POPULATE)
 
-      res.json({ success: true, meal: updatedMeal })
+      res.json({ success: true, meal: flattenMealFoodItems(updatedMeal) })
     } catch (deleteError: unknown) {
       console.error("Error deleting from Cloudinary:", deleteError)
       throw deleteError
