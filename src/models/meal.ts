@@ -32,6 +32,7 @@ export interface IMeal extends Document {
   plannedCookingDate?: Date
   plannedEatingDates: Date[]
   createdAt: Date
+  servings: number
   foodItems: IMealIngredient[]
   user: mongoose.Types.ObjectId
   household?: mongoose.Types.ObjectId | null
@@ -142,6 +143,11 @@ const mealSchema = new Schema<IMeal>({
   plannedEatingDates: {
     type: [Date],
     default: [],
+  },
+  servings: {
+    type: Number,
+    min: 1,
+    default: 4,
   },
   createdAt: {
     type: Date,

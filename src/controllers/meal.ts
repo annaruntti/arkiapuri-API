@@ -58,6 +58,7 @@ interface CreateMealBody {
   mealCategory?: IMeal["mealCategory"]
   plannedCookingDate?: string
   plannedEatingDates?: string[]
+  servings?: number | string
   createdAt?: string | Date
 }
 
@@ -87,6 +88,12 @@ const hasEatingDateBeforeCooking = (
   })
 }
 
+const normalizeServings = (value: unknown): number => {
+  const parsed = parseInt(String(value ?? ""), 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return 4
+  return parsed
+}
+
 export const createMeal = async (
   req: AuthenticatedRequest<Record<string, string>, unknown, CreateMealBody>,
   res: Response
@@ -102,6 +109,7 @@ export const createMeal = async (
       mealCategory,
       plannedCookingDate,
       plannedEatingDates,
+      servings,
       createdAt,
     } = req.body
 
@@ -188,6 +196,7 @@ export const createMeal = async (
       mealCategory,
       plannedCookingDate,
       plannedEatingDates: validatedEatingDates,
+      servings: normalizeServings(servings),
       user: ownership.userId,
       household: ownership.household,
       createdAt,
@@ -282,6 +291,10 @@ export const updateMeal = async (
           message: "Eating dates cannot be before plannedCookingDate",
         })
       }
+    }
+
+    if (updateData.servings !== undefined) {
+      updateData.servings = normalizeServings(updateData.servings)
     }
 
     if (updateData.foodItems !== undefined) {

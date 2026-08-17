@@ -224,3 +224,19 @@ export const migrateMealIngredientRows = async (): Promise<void> => {
     console.log(`Migrated ${migrated} meals to per-ingredient quantities`)
   }
 }
+
+export const migrateMealServingsDefault = async (): Promise<void> => {
+  const db = mongoose.connection.db
+  if (!db) return
+
+  const result = await db.collection("meals").updateMany(
+    { servings: { $ne: 4 } },
+    { $set: { servings: 4 } }
+  )
+
+  if (result.modifiedCount > 0) {
+    console.log(
+      `Set servings=4 on ${result.modifiedCount} existing meals without scaling ingredients`
+    )
+  }
+}

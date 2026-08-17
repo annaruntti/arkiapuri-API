@@ -1,5 +1,5 @@
 import mongoose from "mongoose"
-import { migrateMealIngredientRows } from "../helpers/mealIngredients"
+import { migrateMealIngredientRows, migrateMealServingsDefault } from "../helpers/mealIngredients"
 
 const connectDB = async (): Promise<void> => {
   try {
@@ -18,6 +18,7 @@ const connectDB = async (): Promise<void> => {
     console.log("MongoDB connected successfully")
 
     await migrateMealIngredientRows()
+    await migrateMealServingsDefault()
   } catch (error) {
     console.error("MongoDB connection error:", error)
     process.exit(1)
