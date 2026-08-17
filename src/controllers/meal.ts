@@ -51,6 +51,27 @@ const mealAccessQuery = (user: AuthenticatedRequest["user"], mealId: string) => 
   ...getDataQuery(user, "user"),
 })
 
+const toUtcDayKey = (value?: string | Date | null): string | null => {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString().slice(0, 10)
+}
+
+const hasEatingDateBeforeCooking = (
+  eatingDates?: Array<string | Date>,
+  cookingDate?: string | Date | null
+): boolean => {
+  const cookingKey = toUtcDayKey(cookingDate)
+  if (!cookingKey || !Array.isArray(eatingDates) || eatingDates.length === 0) {
+    return false
+  }
+  return eatingDates.some((date) => {
+    const key = toUtcDayKey(date)
+    return key !== null && key < cookingKey
+  })
+}
+
 export const createMeal = async (
   req: AuthenticatedRequest<Record<string, string>, unknown, CreateMealBody>,
   res: Response
@@ -92,6 +113,13 @@ export const createMeal = async (
 
     if (validatedEatingDates.length === 0 && plannedCookingDate) {
       validatedEatingDates = [plannedCookingDate]
+    }
+
+    if (hasEatingDateBeforeCooking(validatedEatingDates, plannedCookingDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Eating dates cannot be before plannedCookingDate",
+      })
     }
 
     if (foodItems && foodItems.length > 0) {
@@ -216,6 +244,27 @@ export const updateMeal = async (
             updateData.plannedEatingDates = [String(cookingDate)]
           }
         }
+      }
+    }
+
+    if (
+      updateData.plannedEatingDates !== undefined ||
+      updateData.plannedCookingDate !== undefined
+    ) {
+      const nextCookingDate =
+        updateData.plannedCookingDate !== undefined
+          ? updateData.plannedCookingDate
+          : meal.plannedCookingDate
+      const nextEatingDates =
+        updateData.plannedEatingDates !== undefined
+          ? updateData.plannedEatingDates
+          : meal.plannedEatingDates
+
+      if (hasEatingDateBeforeCooking(nextEatingDates, nextCookingDate)) {
+        return res.status(400).json({
+          success: false,
+          message: "Eating dates cannot be before plannedCookingDate",
+        })
       }
     }
 
