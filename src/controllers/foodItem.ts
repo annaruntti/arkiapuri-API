@@ -12,6 +12,8 @@ import {
   parseQuantity,
   resolveModule,
 } from "../helpers/controllerUtils"
+import { getDataQuery } from "../helpers/householdHelpers"
+import type { IMeal } from "../models/meal"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 const User = resolveModule<IUserModel>(require("../models/user"))
@@ -19,6 +21,7 @@ const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
 )
+const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 
 interface FoodItemQuantitiesInput {
   meal?: string | number
@@ -335,14 +338,39 @@ export const updateFoodItem = async (
       { new: true }
     )
 
-    if (!foodItem) {
+    if (foodItem) {
+      return res.json({ success: true, foodItem })
+    }
+
+    // Household meals can reference another member's food items. Allow update
+    // when the item is used by a meal the current user can access.
+    const existingItem = await FoodItem.findById(req.params.id)
+    if (!existingItem) {
       return res.status(404).json({
         success: false,
         message: "Food item not found or unauthorized",
       })
     }
 
-    res.json({ success: true, foodItem })
+    const sharedMeal = await Meal.findOne({
+      foodItems: existingItem._id,
+      ...getDataQuery(req.user, "user"),
+    }).select("_id")
+
+    if (!sharedMeal) {
+      return res.status(404).json({
+        success: false,
+        message: "Food item not found or unauthorized",
+      })
+    }
+
+    const sharedFoodItem = await FoodItem.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true }
+    )
+
+    res.json({ success: true, foodItem: sharedFoodItem })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
