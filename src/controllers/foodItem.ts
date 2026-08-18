@@ -527,6 +527,13 @@ export const moveItem = async (
       })
     }
 
+    if (fromLocation === toLocation) {
+      return res.status(400).json({
+        success: false,
+        message: "Source and destination must be different",
+      })
+    }
+
     const foodItem = await FoodItem.findOne({
       _id: foodItemId,
       user: req.user._id,
@@ -539,9 +546,11 @@ export const moveItem = async (
       })
     }
 
+    const usesPantry = fromLocation === "pantry" || toLocation === "pantry"
+    const pantry = usesPantry ? await getCanonicalPantry(req.user) : null
+
     if (fromLocation === "pantry") {
-      const pantry = await getCanonicalPantry(req.user)
-      const row = pantry.items.find(
+      const row = pantry?.items.find(
         (item) => String(item.foodId) === String(foodItem._id)
       )
       const available = Number(row?.quantity) || 0
@@ -553,7 +562,6 @@ export const moveItem = async (
       }
       if (row) {
         row.quantity = available - quantity
-        await pantry.save()
       }
     } else if (foodItem.quantities[fromLocation] < quantity) {
       return res.status(400).json({
@@ -564,8 +572,7 @@ export const moveItem = async (
       foodItem.quantities[fromLocation] -= quantity
     }
 
-    if (toLocation === "pantry") {
-      const pantry = await getCanonicalPantry(req.user)
+    if (toLocation === "pantry" && pantry && fromLocation !== "pantry") {
       const row = pantry.items.find(
         (item) => String(item.foodId) === String(foodItem._id)
       )
@@ -583,12 +590,14 @@ export const moveItem = async (
           addedFrom: "pantry",
         } as IPantryItem)
       }
-      await pantry.save()
       foodItem.quantities.pantry = 0
-    } else {
+    } else if (toLocation !== "pantry") {
       foodItem.quantities[toLocation] += quantity
     }
 
+    if (pantry) {
+      await pantry.save()
+    }
     await foodItem.save()
 
     res.json({
