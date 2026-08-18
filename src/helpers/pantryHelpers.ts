@@ -1,4 +1,4 @@
-import type { Model } from "mongoose"
+import mongoose, { type Model } from "mongoose"
 import type { IPantry, IPantryItem } from "../models/pantry"
 import type { IUser } from "../models/user"
 import { getDataOwnership, getDataQuery } from "./householdHelpers"
@@ -103,6 +103,10 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
       }
     }
     return unitChanged
+  }
+
+  if (groups.size === 0 && originalCount > 0) {
+    return false
   }
 
   const mergedItems = [...groups.values()].map((group) => {
@@ -211,7 +215,13 @@ export const mergeProcessedPantryItems = <
  */
 export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   const query = getDataQuery(user)
-  const allPantries = await Pantry.find(query)
+  let allPantries = await Pantry.find(query)
+
+  // Auth populates household; a mismatched query must not hide the
+  // user's existing pantry and then create a new empty one.
+  if (allPantries.length === 0) {
+    allPantries = await Pantry.find({ userId: user._id })
+  }
 
   if (allPantries.length === 0) {
     const ownership = getDataOwnership(user)
@@ -228,45 +238,139 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
     return pantry
   }
 
-  const householdPantry = allPantries.find((p) => p.household)
-  const canonical =
-    householdPantry ||
-    allPantries.reduce((a, b) => (a.items.length >= b.items.length ? a : b))
+  const canonical = allPantries.reduce((best, current) => {
+    if (current.items.length !== best.items.length) {
+      return current.items.length > best.items.length ? current : best
+    }
+    if (Boolean(current.household) !== Boolean(best.household)) {
+      return current.household ? current : best
+    }
+    return best
+  })
   const others = allPantries.filter(
     (p) => p._id.toString() !== canonical._id.toString()
   )
 
-  const canonicalNames = new Set(
-    canonical.items.map((i) => pantryItemMergeKey(i.name))
-  )
-  const itemsToMerge = []
-
   for (const other of others) {
     for (const item of other.items) {
       const nameKey = pantryItemMergeKey(item.name)
-      if (!canonicalNames.has(nameKey)) {
-        const raw = item.toObject ? item.toObject() : { ...item }
-        delete (raw as { _id?: unknown })._id
-        itemsToMerge.push(raw)
-        canonicalNames.add(nameKey)
-      } else {
-        const existing = canonical.items.find(
-          (i) => pantryItemMergeKey(i.name) === nameKey
-        )
-        if (existing) {
-          existing.quantity =
-            (Number(existing.quantity) || 0) + (Number(item.quantity) || 0)
-        }
+      const existing = canonical.items.find(
+        (row) => pantryItemMergeKey(row.name) === nameKey
+      )
+      if (existing) {
+        existing.quantity =
+          (Number(existing.quantity) || 0) + (Number(item.quantity) || 0)
+        continue
       }
+      const raw = item.toObject ? item.toObject() : { ...item }
+      delete (raw as { _id?: unknown })._id
+      canonical.items.push(raw as IPantryItem)
     }
   }
 
-  if (itemsToMerge.length > 0) {
-    canonical.items.push(...itemsToMerge)
-  }
   mergeDuplicatePantryItems(canonical)
   await canonical.save()
   await Pantry.deleteMany({ _id: { $in: others.map((p) => p._id) } })
 
   return canonical
+}
+
+/**
+ * Catalog FoodItem.quantities.pantry / locations:pantry used to be a second
+ * pantry table. Copy leftover catalog rows into the Pantry collection, then
+ * clear those catalog flags so GET /food-items cannot be mistaken for pantry.
+ */
+export const migrateCatalogPantryIntoPantryDocs = async (): Promise<void> => {
+  const db = mongoose.connection.db
+  if (!db) return
+
+  const foodItems = db.collection("fooditems")
+  const pantries = db.collection("pantries")
+  const users = db.collection("users")
+
+  const catalogRows = foodItems.find({
+    $or: [{ "quantities.pantry": { $gt: 0 } }, { locations: "pantry" }],
+  })
+
+  let moved = 0
+  let cleared = 0
+
+  for await (const food of catalogRows) {
+    const qty = Number(food.quantities?.pantry) || 0
+    const user = await users.findOne({ _id: food.user })
+    const pantryQuery = user?.household
+      ? { $or: [{ userId: food.user }, { household: user.household }] }
+      : { userId: food.user }
+
+    let pantryDocs = await pantries.find(pantryQuery).toArray()
+    if (pantryDocs.length === 0) {
+      pantryDocs = await pantries.find({ userId: food.user }).toArray()
+    }
+
+    let pantry = pantryDocs.sort(
+      (a, b) => (b.items?.length || 0) - (a.items?.length || 0)
+    )[0]
+
+    if (!pantry) {
+      const inserted = await pantries.insertOne({
+        userId: food.user,
+        household: user?.household || null,
+        items: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      pantry = await pantries.findOne({ _id: inserted.insertedId })
+    }
+
+    if (!pantry) continue
+
+    const items = Array.isArray(pantry.items) ? pantry.items : []
+    const foodIdStr = String(food._id)
+    const nameKey = pantryItemMergeKey(String(food.name || ""))
+    const exists = items.some((item) => {
+      const itemFoodId = item.foodId ? String(item.foodId) : ""
+      return (
+        itemFoodId === foodIdStr ||
+        (nameKey && pantryItemMergeKey(String(item.name || "")) === nameKey)
+      )
+    })
+
+    if (!exists) {
+      items.push({
+        _id: new mongoose.Types.ObjectId(),
+        foodId: food._id,
+        name: food.name,
+        quantity: qty > 0 ? qty : 1,
+        unit: food.unit || "kpl",
+        category: food.category || [],
+        calories: food.calories || 0,
+        price: food.price || 0,
+        expirationDate:
+          food.expirationDate ||
+          food.expireDay ||
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        addedFrom: "pantry",
+      })
+      await pantries.updateOne(
+        { _id: pantry._id },
+        { $set: { items, updatedAt: new Date() } }
+      )
+      moved += 1
+    }
+
+    await foodItems.updateOne(
+      { _id: food._id },
+      {
+        $set: { "quantities.pantry": 0 },
+        $pull: { locations: "pantry" },
+      }
+    )
+    cleared += 1
+  }
+
+  if (moved > 0 || cleared > 0) {
+    console.log(
+      `Merged ${moved} catalog pantry rows into pantries; cleared ${cleared} leftover catalog pantry flags`
+    )
+  }
 }

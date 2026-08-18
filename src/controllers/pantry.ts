@@ -46,6 +46,7 @@ const parsePantryQuantity = (value: number | string | undefined): number =>
 
 export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    // Pantry collection is the only source of truth for pantry contents.
     const pantry = await getCanonicalPantry(req.user)
     await pantry.populate({ path: "items.foodId" })
 

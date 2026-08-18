@@ -165,7 +165,7 @@ foodItemSchema.methods.updateLocations = function (this: IFoodItem): void {
   this.locations = (
     Object.entries(this.quantities) as [FoodLocation, number][]
   )
-    .filter(([_, quantity]) => quantity > 0)
+    .filter(([location, quantity]) => location !== "pantry" && quantity > 0)
     .map(([location]) => location)
 }
 

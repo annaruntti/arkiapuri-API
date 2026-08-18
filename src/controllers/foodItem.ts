@@ -12,6 +12,7 @@ import {
   resolveModule,
 } from "../helpers/controllerUtils"
 import { getDataQuery } from "../helpers/householdHelpers"
+import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import type { IMeal } from "../models/meal"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -268,10 +269,13 @@ export const getFoodItems = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
+    // Catalog only. Pantry contents live on the Pantry document (`GET /pantry`),
+    // not on FoodItem.locations / FoodItem.quantities.
     const query: FilterQuery<IFoodItem> = { user: req.user._id }
     const foodItems = await FoodItem.find(query)
     res.json({ success: true, foodItems })
   } catch (error: unknown) {
+    console.error("Error getting food items:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
@@ -429,6 +433,43 @@ export const updateQuantity = async (
       })
     }
 
+    if (location === "pantry") {
+      const pantry = await getCanonicalPantry(req.user)
+      const row = pantry.items.find(
+        (item) => String(item.foodId) === String(foodItem._id)
+      )
+      if (!row) {
+        return res.status(400).json({
+          success: false,
+          message: "Item not found in pantry",
+        })
+      }
+
+      switch (action) {
+        case "add":
+          row.quantity += quantity
+          break
+        case "subtract":
+          row.quantity = Math.max(0, row.quantity - quantity)
+          break
+        case "set":
+          row.quantity = Math.max(0, quantity)
+          break
+        default:
+          return res.status(400).json({
+            success: false,
+            message: "Invalid action",
+          })
+      }
+
+      await pantry.save()
+      return res.json({
+        success: true,
+        foodItem,
+        message: `Quantity ${action}ed in pantry`,
+      })
+    }
+
     switch (action) {
       case "add":
         foodItem.quantities[location] += quantity
@@ -498,15 +539,55 @@ export const moveItem = async (
       })
     }
 
-    if (foodItem.quantities[fromLocation] < quantity) {
+    if (fromLocation === "pantry") {
+      const pantry = await getCanonicalPantry(req.user)
+      const row = pantry.items.find(
+        (item) => String(item.foodId) === String(foodItem._id)
+      )
+      const available = Number(row?.quantity) || 0
+      if (available < quantity) {
+        return res.status(400).json({
+          success: false,
+          message: "Not enough quantity in pantry",
+        })
+      }
+      if (row) {
+        row.quantity = available - quantity
+        await pantry.save()
+      }
+    } else if (foodItem.quantities[fromLocation] < quantity) {
       return res.status(400).json({
         success: false,
         message: `Not enough quantity in ${fromLocation}`,
       })
+    } else {
+      foodItem.quantities[fromLocation] -= quantity
     }
 
-    foodItem.quantities[fromLocation] -= quantity
-    foodItem.quantities[toLocation] += quantity
+    if (toLocation === "pantry") {
+      const pantry = await getCanonicalPantry(req.user)
+      const row = pantry.items.find(
+        (item) => String(item.foodId) === String(foodItem._id)
+      )
+      if (row) {
+        row.quantity = (Number(row.quantity) || 0) + quantity
+      } else {
+        pantry.items.push({
+          foodId: foodItem._id,
+          name: foodItem.name,
+          quantity,
+          unit: foodItem.unit || "kpl",
+          category: foodItem.category || [],
+          calories: foodItem.calories || 0,
+          price: foodItem.price || 0,
+          addedFrom: "pantry",
+        } as IPantryItem)
+      }
+      await pantry.save()
+      foodItem.quantities.pantry = 0
+    } else {
+      foodItem.quantities[toLocation] += quantity
+    }
 
     await foodItem.save()
 
