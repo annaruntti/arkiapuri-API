@@ -1,19 +1,36 @@
 import mongoose, { Document, Schema } from "mongoose"
 
 export type MealRole = "breakfast" | "lunch" | "snack" | "dinner" | "supper" | "dessert" | "other"
-export type MealCategory =
-  | "salad"
-  | "pasta"
-  | "soup"
-  | "casserole"
-  | "stew"
-  | "pizza"
-  | "texmex"
-  | "burger"
-  | "steak"
-  | "fish"
-  | "vegetarian"
-  | "other"
+export const VALID_MEAL_CATEGORIES = [
+  "porridge",
+  "pie",
+  "sandwich",
+  "salad",
+  "soup",
+  "pasta",
+  "pizza",
+  "burger",
+  "wrap",
+  "stew",
+  "casserole",
+  "asian",
+  "texmex",
+  "wok",
+  "curry",
+  "steak",
+  "mincedMeat",
+  "vegetarian",
+  "egg",
+  "grill",
+  "fish",
+  "chicken",
+  "lamb",
+  "pork",
+  "game",
+  "dessert",
+  "other",
+] as const
+export type MealCategory = (typeof VALID_MEAL_CATEGORIES)[number]
 
 export interface IMealIngredient {
   foodId: mongoose.Types.ObjectId
@@ -28,7 +45,7 @@ export interface IMeal extends Document {
   difficultyLevel?: "easy" | "medium" | "hard"
   cookingTime?: number
   defaultRoles: string
-  mealCategory: MealCategory
+  mealCategory: MealCategory[]
   plannedCookingDate?: Date
   plannedEatingDates: Date[]
   createdAt: Date
@@ -120,22 +137,13 @@ const mealSchema = new Schema<IMeal>({
     },
   },
   mealCategory: {
-    type: String,
-    enum: [
-      "salad",
-      "pasta",
-      "soup",
-      "casserole",
-      "stew",
-      "pizza",
-      "texmex",
-      "burger",
-      "steak",
-      "fish",
-      "vegetarian",
-      "other",
+    type: [
+      {
+        type: String,
+        enum: VALID_MEAL_CATEGORIES,
+      },
     ],
-    default: "other",
+    default: [],
   },
   plannedCookingDate: {
     type: Date,

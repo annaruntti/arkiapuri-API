@@ -1,6 +1,10 @@
 import mongoose from "mongoose"
 import type { IFoodItem } from "../models/foodItem"
-import type { IMealIngredient } from "../models/meal"
+import {
+  VALID_MEAL_CATEGORIES,
+  type IMealIngredient,
+  type MealCategory,
+} from "../models/meal"
 
 export const MEAL_FOOD_CATALOG_SELECT =
   "name unit category calories price image nutrition openFoodFactsData isFood quantities"
@@ -62,6 +66,46 @@ export const normalizeMealIngredientInputs = (
     )
 }
 
+const mealCategoryByLower = Object.fromEntries(
+  VALID_MEAL_CATEGORIES.map((key) => [key.toLowerCase(), key])
+) as Record<string, MealCategory>
+
+export const normalizeMealCategories = (value: unknown): MealCategory[] => {
+  const categories: string[] = []
+  const visit = (entry: unknown) => {
+    if (entry == null || entry === "") return
+    if (Array.isArray(entry)) {
+      entry.forEach(visit)
+      return
+    }
+    if (typeof entry !== "string") return
+    const trimmed = entry.trim()
+    if (
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+      try {
+        visit(JSON.parse(trimmed))
+        return
+      } catch {
+        // Treat as a plain category string
+      }
+    }
+    categories.push(trimmed)
+  }
+  visit(value)
+
+  const unique: MealCategory[] = []
+  const seen = new Set<string>()
+  for (const item of categories) {
+    const canonical = mealCategoryByLower[item.toLowerCase()]
+    if (!canonical || seen.has(canonical)) continue
+    seen.add(canonical)
+    unique.push(canonical)
+  }
+  return unique
+}
+
 type PopulatedIngredient = {
   foodId?: (IFoodItem & { _id: mongoose.Types.ObjectId }) | mongoose.Types.ObjectId | null
   quantity?: number
@@ -115,6 +159,9 @@ export const flattenMealFoodItems = <T extends { foodItems?: unknown }>(
     ...obj,
     defaultRoles: parseDefaultRoles(
       (obj as T & { defaultRoles?: unknown }).defaultRoles
+    ),
+    mealCategory: normalizeMealCategories(
+      (obj as T & { mealCategory?: unknown }).mealCategory
     ),
     foodItems: rows.map((row) => {
       const catalog =
@@ -222,6 +269,33 @@ export const migrateMealIngredientRows = async (): Promise<void> => {
 
   if (migrated > 0) {
     console.log(`Migrated ${migrated} meals to per-ingredient quantities`)
+  }
+}
+
+export const migrateMealCategoriesToArray = async (): Promise<void> => {
+  const db = mongoose.connection.db
+  if (!db) return
+
+  const meals = db.collection("meals")
+  const cursor = meals.find({
+    $or: [
+      { mealCategory: { $type: "string" } },
+      { mealCategory: { $exists: false } },
+      { mealCategory: null },
+    ],
+  })
+
+  let migrated = 0
+  for await (const meal of cursor) {
+    await meals.updateOne(
+      { _id: meal._id },
+      { $set: { mealCategory: normalizeMealCategories(meal.mealCategory) } }
+    )
+    migrated += 1
+  }
+
+  if (migrated > 0) {
+    console.log(`Migrated mealCategory to array on ${migrated} meals`)
   }
 }
 

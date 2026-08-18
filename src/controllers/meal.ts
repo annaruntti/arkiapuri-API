@@ -18,6 +18,7 @@ import {
 import {
   flattenMealFoodItems,
   MEAL_FOOD_CATALOG_SELECT,
+  normalizeMealCategories,
   normalizeMealIngredientInputs,
 } from "../helpers/mealIngredients"
 
@@ -55,7 +56,7 @@ interface CreateMealBody {
       }
   >
   defaultRoles?: string[]
-  mealCategory?: IMeal["mealCategory"]
+  mealCategory?: IMeal["mealCategory"] | string
   plannedCookingDate?: string
   plannedEatingDates?: string[]
   servings?: number | string
@@ -193,7 +194,7 @@ export const createMeal = async (
       cookingTime,
       foodItems: ingredientRows,
       defaultRoles,
-      mealCategory,
+      mealCategory: normalizeMealCategories(mealCategory),
       plannedCookingDate,
       plannedEatingDates: validatedEatingDates,
       servings: normalizeServings(servings),
@@ -295,6 +296,10 @@ export const updateMeal = async (
 
     if (updateData.servings !== undefined) {
       updateData.servings = normalizeServings(updateData.servings)
+    }
+
+    if (updateData.mealCategory !== undefined) {
+      updateData.mealCategory = normalizeMealCategories(updateData.mealCategory)
     }
 
     if (updateData.foodItems !== undefined) {
