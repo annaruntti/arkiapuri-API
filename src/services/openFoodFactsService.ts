@@ -64,6 +64,38 @@ interface SuggestionItem {
 }
 
 class OpenFoodFactsService {
+  private static readonly INFLECTION_SUFFIXES = new Set([
+    "a",
+    "ä",
+    "n",
+    "t",
+    "ja",
+    "jä",
+    "aa",
+    "ää",
+    "ta",
+    "tä",
+    "ia",
+    "iä",
+    "ssa",
+    "ssä",
+    "sta",
+    "stä",
+    "lla",
+    "llä",
+    "lta",
+    "ltä",
+    "na",
+    "nä",
+    "ksi",
+    "in",
+    "en",
+    "an",
+    "än",
+  ])
+
+  private static readonly TEXT_SEARCH_FETCH_SIZE = 100
+
   private baseURL: string
   private searchURL: string
   private defaultHeaders: Record<string, string>
@@ -137,28 +169,27 @@ class OpenFoodFactsService {
 
   /**
    * Full-text search via Search-a-licious (recommended), with legacy cgi/search.pl fallback.
-   * Results are ranked so product names containing the query come first.
+   * Over-fetches from OFF, then keeps only relevant name/brand matches.
    */
-  async searchByText(query: string, page = 1, pageSize = 20): Promise<SearchResult> {
+  async searchByText(query: string, page = 1, pageSize = 50): Promise<SearchResult> {
     const trimmed = query.trim()
+    const fetchSize = OpenFoodFactsService.TEXT_SEARCH_FETCH_SIZE
+    const offPage = this.getOffPageForClientPage(page, pageSize, fetchSize)
     try {
-      const fetchSize = Math.min(Math.max(pageSize * 3, 24), 50)
       const url =
         `${this.searchURL}/search?q=${encodeURIComponent(trimmed)}` +
-        `&page=${page}&page_size=${fetchSize}&langs=fi&fields=${this.searchFields}`
+        `&page=${offPage}&page_size=${fetchSize}&langs=fi&fields=${this.searchFields}`
 
       const data = await this.makeRequest(url)
       const hits = Array.isArray(data?.hits) ? data.hits : []
-      const ranked = this.rankSearchHits(hits, trimmed).slice(0, pageSize)
-      const count = Number(data?.count) || ranked.length
-
-      return {
-        products: ranked.map((product) => this.formatProductData(product)),
-        count,
+      return this.buildTextSearchResult(
+        hits,
+        trimmed,
         page,
         pageSize,
-        totalPages: Math.max(1, Math.ceil(count / pageSize)),
-      }
+        fetchSize,
+        Number(data?.count)
+      )
     } catch (primaryError: any) {
       console.warn(
         "Search-a-licious failed, falling back to cgi/search.pl:",
@@ -171,31 +202,64 @@ class OpenFoodFactsService {
   private async searchByTextLegacy(
     query: string,
     page = 1,
-    pageSize = 20
+    pageSize = 50
   ): Promise<SearchResult> {
+    const fetchSize = OpenFoodFactsService.TEXT_SEARCH_FETCH_SIZE
+    const offPage = this.getOffPageForClientPage(page, pageSize, fetchSize)
     try {
-      const fetchSize = Math.min(Math.max(pageSize * 3, 24), 50)
       const url =
         `${this.baseURL}/cgi/search.pl?action=process&search_simple=1` +
-        `&search_terms=${encodeURIComponent(query)}&page=${page}` +
+        `&search_terms=${encodeURIComponent(query)}&page=${offPage}` +
         `&page_size=${fetchSize}&json=1&lc=fi&cc=fi` +
         `&fields=${this.searchFields}`
 
       const data = await this.makeRequest(url)
       const products = Array.isArray(data?.products) ? data.products : []
-      const ranked = this.rankSearchHits(products, query).slice(0, pageSize)
-      const count = Number(data?.count) || ranked.length
-
-      return {
-        products: ranked.map((product) => this.formatProductData(product)),
-        count,
-        page: Number(data?.page) || page,
+      return this.buildTextSearchResult(
+        products,
+        query,
+        page,
         pageSize,
-        totalPages: Math.max(1, Math.ceil(count / pageSize)),
-      }
+        fetchSize,
+        Number(data?.count)
+      )
     } catch (error: any) {
       console.error("Error searching by text:", error.message)
       throw new Error("Failed to search products by text")
+    }
+  }
+
+  private getOffPageForClientPage(
+    page: number,
+    pageSize: number,
+    fetchSize: number
+  ): number {
+    return Math.floor(((Math.max(1, page) - 1) * pageSize) / fetchSize) + 1
+  }
+
+  private buildTextSearchResult(
+    hits: any[],
+    query: string,
+    page: number,
+    pageSize: number,
+    fetchSize: number,
+    apiCount?: number
+  ): SearchResult {
+    const ranked = this.rankSearchHits(hits, query)
+    const offset = ((Math.max(1, page) - 1) * pageSize) % fetchSize
+    const pageHits = ranked.slice(offset, offset + pageSize)
+    const parsedCount = Number(apiCount)
+    const count =
+      Number.isFinite(parsedCount) && parsedCount > 0
+        ? parsedCount
+        : ranked.length
+
+    return {
+      products: pageHits.map((product) => this.formatProductData(product)),
+      count,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(count / pageSize) || 1),
     }
   }
 
@@ -204,18 +268,15 @@ class OpenFoodFactsService {
     if (!queryLower || hits.length === 0) return hits
 
     const scored = hits.map((hit, index) => {
-      const name = this.getProductDisplayName(hit).toLowerCase()
-      const brands = this.normalizeBrands(hit.brands).toLowerCase()
       const inFinland = (hit.countries_tags || []).some(
         (tag: string) =>
           String(tag).includes("finland") || String(tag).includes("suomi")
       )
 
+      const nameRank = this.getNameMatchRank(hit, queryLower)
       let rank = 50
-      if (name === queryLower) rank = 0
-      else if (name.startsWith(queryLower)) rank = 1
-      else if (name.includes(queryLower)) rank = 2
-      else if (brands.includes(queryLower)) rank = 10
+      if (nameRank !== null) rank = nameRank
+      else if (this.matchesBrand(hit.brands, queryLower)) rank = 10
       else rank = 40
 
       return { hit, rank, inFinland, index }
@@ -230,8 +291,8 @@ class OpenFoodFactsService {
       Number(b.inFinland) - Number(a.inFinland) ||
       a.index - b.index
 
-    // Name hits first; fill remaining slots with brand hits (useful for "leipä"),
-    // and only then fall back to weaker OFF matches.
+    // Name hits first, then brand hits. Weak OFF full-text hits are dropped
+    // unless nothing relevant was found.
     const ranked = [
       ...nameMatches.sort(byRelevance),
       ...brandMatches.sort(byRelevance),
@@ -241,6 +302,87 @@ class OpenFoodFactsService {
     ]
 
     return ranked.map((item) => item.hit)
+  }
+
+  private getNameMatchRank(hit: any, queryLower: string): number | null {
+    const names = [
+      hit.product_name_fi,
+      hit.product_name,
+      hit.name,
+    ].filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+
+    let best: number | null = null
+    for (const name of names) {
+      const rank = this.scoreTextMatch(name, queryLower)
+      if (rank !== null && (best === null || rank < best)) {
+        best = rank
+      }
+    }
+    return best
+  }
+
+  private matchesBrand(brands: unknown, queryLower: string): boolean {
+    const normalized = this.normalizeBrands(brands)
+    return this.scoreTextMatch(normalized, queryLower) !== null
+  }
+
+  /**
+   * Token/compound matching for Finnish product names.
+   * Rejects mid-word false positives (kana → kaneli) while keeping
+   * inflections (maitoa) and compounds (ruisleipä, kanafilee).
+   */
+  private scoreTextMatch(text: string, queryLower: string): number | null {
+    const normalized = text.toLowerCase().trim()
+    if (!normalized || !queryLower) return null
+
+    if (normalized === queryLower) return 0
+
+    if (normalized.startsWith(queryLower)) {
+      const nextChar = normalized[queryLower.length]
+      if (!nextChar || /[\s,;/+()[\]{}.\-_|'"]/.test(nextChar)) return 1
+    }
+
+    const tokens = this.tokenizeSearchText(normalized)
+    let best: number | null = null
+
+    for (const token of tokens) {
+      if (token === queryLower) {
+        best = best === null ? 1 : Math.min(best, 1)
+        continue
+      }
+
+      if (token.startsWith(queryLower)) {
+        const remainder = token.slice(queryLower.length)
+        if (this.isInflectionRemainder(remainder)) {
+          best = best === null ? 2 : Math.min(best, 2)
+        } else if (queryLower.length >= 4 && remainder.length >= 3) {
+          // Compound with the query as the first part, e.g. kanafilee
+          best = best === null ? 2 : Math.min(best, 2)
+        }
+      }
+
+      if (
+        queryLower.length >= 4 &&
+        token.length > queryLower.length &&
+        token.endsWith(queryLower)
+      ) {
+        // Compound with the query as the last part, e.g. ruisleipä, kevytmaito
+        best = best === null ? 2 : Math.min(best, 2)
+      }
+    }
+
+    return best
+  }
+
+  private tokenizeSearchText(text: string): string[] {
+    return text
+      .split(/[\s,;/+()[\]{}.\-_|'"]+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+  }
+
+  private isInflectionRemainder(remainder: string): boolean {
+    return OpenFoodFactsService.INFLECTION_SUFFIXES.has(remainder)
   }
 
   private getProductDisplayName(product: any): string {

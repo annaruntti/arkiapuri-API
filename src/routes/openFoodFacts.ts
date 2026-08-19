@@ -128,9 +128,9 @@ router.get("/barcode/:barcode", openFoodFactsController.searchByBarcode)
  *         name: limit
  *         schema:
  *           type: integer
- *           default: 20
+ *           default: 50
  *           maximum: 50
- *         description: Number of results per page
+ *         description: Maximum number of relevant results to return
  *     responses:
  *       200:
  *         description: Search results

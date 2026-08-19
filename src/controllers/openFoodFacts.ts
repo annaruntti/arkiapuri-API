@@ -100,7 +100,7 @@ export const searchByText = async (
     }
 
     const pageNum = asNumber(page, 1)
-    const pageSize = Math.min(asNumber(limit, 20), 50)
+    const pageSize = Math.min(asNumber(limit, 50), 50)
 
     const results = await openFoodFactsService.searchByText(
       query.trim(),
