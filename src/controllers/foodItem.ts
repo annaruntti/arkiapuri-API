@@ -11,7 +11,11 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
-import { getDataQuery } from "../helpers/householdHelpers"
+import {
+  getDataQuery,
+  getHouseholdMemberIds,
+  resolveHouseholdId,
+} from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import type { IMeal } from "../models/meal"
 
@@ -271,7 +275,16 @@ export const getFoodItems = async (
   try {
     // Catalog only. Pantry contents live on the Pantry document (`GET /pantry`),
     // not on FoodItem.locations / FoodItem.quantities.
-    const query: FilterQuery<IFoodItem> = { user: req.user._id }
+    const householdId = resolveHouseholdId(req.user)
+    const memberIds = householdId
+      ? await getHouseholdMemberIds(householdId)
+      : []
+    const query: FilterQuery<IFoodItem> = {
+      user:
+        memberIds.length > 0
+          ? { $in: memberIds }
+          : req.user._id,
+    }
     const foodItems = await FoodItem.find(query)
     res.json({ success: true, foodItems })
   } catch (error: unknown) {
@@ -352,7 +365,7 @@ export const updateFoodItem = async (
             { foodItems: existingItem._id },
           ],
         },
-        getDataQuery(req.user, "user"),
+        await getDataQuery(req.user, "user"),
       ],
     }).select("_id")
 

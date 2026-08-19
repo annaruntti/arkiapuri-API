@@ -1,7 +1,10 @@
 import mongoose, { type Model } from "mongoose"
 import type { IPantry, IPantryItem } from "../models/pantry"
 import type { IUser } from "../models/user"
-import { getDataOwnership, getDataQuery } from "./householdHelpers"
+import {
+  getDataOwnership,
+  getDataQuery,
+} from "./householdHelpers"
 import { resolveModule } from "./controllerUtils"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
@@ -209,13 +212,45 @@ export const mergeProcessedPantryItems = <
   return [...groups.values()]
 }
 
+const pantryHouseholdId = (
+  pantry: IPantry
+): mongoose.Types.ObjectId | null => {
+  const household = pantry.household as unknown
+  if (!household) return null
+  if (typeof household === "object" && household !== null && "_id" in household) {
+    return (household as { _id: mongoose.Types.ObjectId })._id
+  }
+  return household as mongoose.Types.ObjectId
+}
+
+const pickCanonicalPantry = (pantries: IPantry[]): IPantry => {
+  const byItemCount = (best: IPantry, current: IPantry) =>
+    current.items.length > best.items.length ? current : best
+
+  const householdPantries = pantries.filter((pantry) => pantryHouseholdId(pantry))
+  if (householdPantries.length > 0) {
+    return householdPantries.reduce(byItemCount)
+  }
+  return pantries.reduce(byItemCount)
+}
+
+const attachHouseholdIfMissing = (
+  pantry: IPantry,
+  householdId: mongoose.Types.ObjectId | null
+): boolean => {
+  if (!householdId || pantryHouseholdId(pantry)) return false
+  pantry.household = householdId
+  return true
+}
+
 /**
  * Find (or create) the single canonical pantry for the user/household.
  * If multiple pantry documents exist, merge into one and delete duplicates.
+ * A household pantry always wins so other members still find it via household.
  */
 export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
-  const query = getDataQuery(user)
-  let allPantries = await Pantry.find(query)
+  const ownership = getDataOwnership(user)
+  let allPantries = await Pantry.find(await getDataQuery(user))
 
   // Auth populates household; a mismatched query must not hide the
   // user's existing pantry and then create a new empty one.
@@ -224,7 +259,6 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   }
 
   if (allPantries.length === 0) {
-    const ownership = getDataOwnership(user)
     const pantry = new Pantry({ ...ownership, items: [] })
     await pantry.save()
     return pantry
@@ -232,21 +266,18 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
 
   if (allPantries.length === 1) {
     const pantry = allPantries[0]
-    if (mergeDuplicatePantryItems(pantry)) {
+    const itemsChanged = mergeDuplicatePantryItems(pantry)
+    const householdAttached = attachHouseholdIfMissing(
+      pantry,
+      ownership.household
+    )
+    if (itemsChanged || householdAttached) {
       await pantry.save()
     }
     return pantry
   }
 
-  const canonical = allPantries.reduce((best, current) => {
-    if (current.items.length !== best.items.length) {
-      return current.items.length > best.items.length ? current : best
-    }
-    if (Boolean(current.household) !== Boolean(best.household)) {
-      return current.household ? current : best
-    }
-    return best
-  })
+  const canonical = pickCanonicalPantry(allPantries)
   const others = allPantries.filter(
     (p) => p._id.toString() !== canonical._id.toString()
   )
@@ -267,6 +298,14 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
       canonical.items.push(raw as IPantryItem)
     }
   }
+
+  const householdFromDocs = allPantries
+    .map((pantry) => pantryHouseholdId(pantry))
+    .find((id) => id != null)
+  attachHouseholdIfMissing(
+    canonical,
+    householdFromDocs || ownership.household
+  )
 
   mergeDuplicatePantryItems(canonical)
   await canonical.save()
@@ -363,7 +402,7 @@ export const migrateCatalogPantryIntoPantryDocs = async (): Promise<void> => {
       {
         $set: { "quantities.pantry": 0 },
         $pull: { locations: "pantry" },
-      }
+      } as unknown as mongoose.mongo.UpdateFilter<mongoose.mongo.BSON.Document>
     )
     cleared += 1
   }

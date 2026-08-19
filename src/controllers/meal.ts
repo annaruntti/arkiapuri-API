@@ -63,9 +63,11 @@ interface CreateMealBody {
   createdAt?: string | Date
 }
 
-const mealAccessQuery = (user: AuthenticatedRequest["user"], mealId: string) => ({
-  _id: mealId,
-  ...getDataQuery(user, "user"),
+const mealAccessQuery = async (
+  user: AuthenticatedRequest["user"],
+  mealId: string
+) => ({
+  $and: [{ _id: mealId }, await getDataQuery(user, "user")],
 })
 
 const toUtcDayKey = (value?: string | Date | null): string | null => {
@@ -222,7 +224,7 @@ export const createMeal = async (
 
 export const getMeals = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const query = getDataQuery(req.user, "user")
+    const query = await getDataQuery(req.user, "user")
     const meals = await Meal.find(query).populate(FOOD_ITEM_POPULATE)
     res.json({
       success: true,
@@ -241,7 +243,7 @@ export const updateMeal = async (
   try {
     const { mealId } = req.params
     const updateData = { ...req.body }
-    const accessQuery = mealAccessQuery(req.user, mealId)
+    const accessQuery = await mealAccessQuery(req.user, mealId)
 
     const meal = await Meal.findOne(accessQuery)
     if (!meal) {
@@ -337,7 +339,7 @@ export const deleteMeal = async (
 ) => {
   try {
     const { mealId } = req.params
-    const accessQuery = mealAccessQuery(req.user, mealId)
+    const accessQuery = await mealAccessQuery(req.user, mealId)
 
     const meal = await Meal.findOne(accessQuery)
     if (!meal) {
@@ -375,7 +377,7 @@ export const uploadMealImage = async (
     }
 
     const { mealId } = req.params
-    const meal = await Meal.findOne(mealAccessQuery(req.user, mealId))
+    const meal = await Meal.findOne(await mealAccessQuery(req.user, mealId))
 
     if (!meal) {
       return res.status(404).json({
@@ -433,7 +435,7 @@ export const removeMealImage = async (
 ) => {
   try {
     const { mealId } = req.params
-    const meal = await Meal.findOne(mealAccessQuery(req.user, mealId))
+    const meal = await Meal.findOne(await mealAccessQuery(req.user, mealId))
 
     if (!meal) {
       return res.status(404).json({

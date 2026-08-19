@@ -9,6 +9,8 @@ import {
   resolveModule,
 } from "../helpers/controllerUtils"
 import { sendFamilyInvitation } from "../services/emailService"
+import { shareHouseholdDocuments } from "../helpers/householdHelpers"
+import { getCanonicalPantry } from "../helpers/pantryHelpers"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -52,6 +54,9 @@ export const createHousehold = async (
 
     await household.save()
     await User.findByIdAndUpdate(userId, { household: household._id })
+    req.user.household = household._id
+    await shareHouseholdDocuments(household._id)
+    await getCanonicalPantry(req.user)
 
     const populatedHousehold = await Household.findById(household._id)
       .populate("members.userId", "username email profileImage")
@@ -609,6 +614,9 @@ export const acceptInvitation = async (
     await invitation.save()
 
     await User.findByIdAndUpdate(userId, { household: household._id })
+    req.user.household = household._id
+    await shareHouseholdDocuments(household._id)
+    await getCanonicalPantry(req.user)
 
     const populatedHousehold = await Household.findById(household._id)
       .populate("members.userId", "username email profileImage")

@@ -187,8 +187,7 @@ class OpenFoodFactsService {
         trimmed,
         page,
         pageSize,
-        fetchSize,
-        Number(data?.count)
+        fetchSize
       )
     } catch (primaryError: any) {
       console.warn(
@@ -220,8 +219,7 @@ class OpenFoodFactsService {
         query,
         page,
         pageSize,
-        fetchSize,
-        Number(data?.count)
+        fetchSize
       )
     } catch (error: any) {
       console.error("Error searching by text:", error.message)
@@ -242,24 +240,21 @@ class OpenFoodFactsService {
     query: string,
     page: number,
     pageSize: number,
-    fetchSize: number,
-    apiCount?: number
+    fetchSize: number
   ): SearchResult {
     const ranked = this.rankSearchHits(hits, query)
-    const offset = ((Math.max(1, page) - 1) * pageSize) % fetchSize
-    const pageHits = ranked.slice(offset, offset + pageSize)
-    const parsedCount = Number(apiCount)
-    const count =
-      Number.isFinite(parsedCount) && parsedCount > 0
-        ? parsedCount
-        : ranked.length
+    const safePage = Math.max(1, page)
+    const offset = ((safePage - 1) * pageSize) % fetchSize
+    const pageHits =
+      offset < ranked.length ? ranked.slice(offset, offset + pageSize) : []
+    const count = ranked.length
 
     return {
       products: pageHits.map((product) => this.formatProductData(product)),
       count,
-      page,
+      page: safePage,
       pageSize,
-      totalPages: Math.max(1, Math.ceil(count / pageSize) || 1),
+      totalPages: count === 0 ? 0 : Math.ceil(count / pageSize),
     }
   }
 

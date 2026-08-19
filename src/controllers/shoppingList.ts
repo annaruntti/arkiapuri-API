@@ -57,11 +57,11 @@ const resolveIsFood = (value: unknown, fallback = true): boolean => {
   return fallback
 }
 
-const shoppingListAccessQuery = (
+const shoppingListAccessQuery = async (
   user: AuthenticatedRequest["user"],
   listId: string
 ) => ({
-  $and: [{ _id: listId }, getDataQuery(user)],
+  $and: [{ _id: listId }, await getDataQuery(user)],
 })
 
 const resolveItemFoodId = (
@@ -171,7 +171,7 @@ export const getShoppingLists = async (
   res: Response
 ) => {
   try {
-    const query = getDataQuery(req.user)
+    const query = await getDataQuery(req.user)
     const shoppingLists = await ShoppingList.find(query)
       .populate({
         path: "items.foodId",
@@ -202,7 +202,7 @@ export const updateShoppingList = async (
   try {
     const { id } = req.params
     const { items, totalEstimatedPrice } = req.body
-    const query = shoppingListAccessQuery(req.user, id)
+    const query = await shoppingListAccessQuery(req.user, id)
 
     await ShoppingList.findOneAndUpdate(
       query,
@@ -251,7 +251,7 @@ export const setItemBought = async (
     const normalizedItemId = String(itemId)
 
     const shoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     )
 
     if (!shoppingList) {
@@ -284,7 +284,7 @@ export const setItemBought = async (
     await shoppingList.save()
 
     const updatedShoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     ).populate({
       path: "items.foodId",
       select: FOOD_ITEM_SELECT,
@@ -519,7 +519,7 @@ const moveShoppingListItemsToPantryInternal = async (
   itemIds: string[]
 ) => {
   const shoppingList = await ShoppingList.findOne(
-    shoppingListAccessQuery(user, listId)
+    await shoppingListAccessQuery(user, listId)
   )
 
   if (!shoppingList) {
@@ -607,13 +607,13 @@ const moveShoppingListItemsToPantryInternal = async (
       ...(moved.length > 0 ? [pantry.save()] : []),
     ])
 
-    await ShoppingList.updateOne(shoppingListAccessQuery(user, listId), {
+    await ShoppingList.updateOne(await shoppingListAccessQuery(user, listId), {
       $pull: { items: { _id: { $in: [...removeIdSet] } } },
     })
   }
 
   const updatedShoppingList = await ShoppingList.findOne(
-    shoppingListAccessQuery(user, listId)
+    await shoppingListAccessQuery(user, listId)
   ).populate({
     path: "items.foodId",
     select: FOOD_ITEM_SELECT,
@@ -662,7 +662,7 @@ export const deleteShoppingListItem = async (
     const normalizedItemId = String(itemId)
 
     const shoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     )
 
     if (!shoppingList) {
@@ -694,7 +694,7 @@ export const deleteShoppingListItem = async (
     await shoppingList.save()
 
     const updatedShoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     ).populate({
       path: "items.foodId",
       select: FOOD_ITEM_SELECT,
@@ -734,7 +734,7 @@ export const updateShoppingListItem = async (
     const normalizedItemId = String(itemId)
 
     const shoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     )
 
     if (!shoppingList) {
@@ -792,7 +792,7 @@ export const updateShoppingListItem = async (
     await shoppingList.save()
 
     const updatedShoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, listId)
+      await shoppingListAccessQuery(req.user, listId)
     ).populate({
       path: "items.foodId",
       select: FOOD_ITEM_SELECT,
@@ -833,7 +833,7 @@ export const addItemsToShoppingList = async (
     }
 
     const shoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, id)
+      await shoppingListAccessQuery(req.user, id)
     )
 
     if (!shoppingList) {
@@ -855,7 +855,7 @@ export const addItemsToShoppingList = async (
     await shoppingList.save()
 
     const updatedShoppingList = await ShoppingList.findOne(
-      shoppingListAccessQuery(req.user, id)
+      await shoppingListAccessQuery(req.user, id)
     ).populate({
       path: "items.foodId",
       select: FOOD_ITEM_SELECT,
@@ -888,7 +888,7 @@ export const deleteShoppingList = async (
     const { id } = req.params
 
     const shoppingList = await ShoppingList.findOneAndDelete(
-      shoppingListAccessQuery(req.user, id)
+      await shoppingListAccessQuery(req.user, id)
     )
 
     if (!shoppingList) {
