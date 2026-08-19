@@ -549,20 +549,37 @@ export const moveItem = async (
     const usesPantry = fromLocation === "pantry" || toLocation === "pantry"
     const pantry = usesPantry ? await getCanonicalPantry(req.user) : null
 
+    if (usesPantry && !pantry) {
+      return res.status(500).json({
+        success: false,
+        message: "Pantry not available",
+      })
+    }
+
     if (fromLocation === "pantry") {
-      const row = pantry?.items.find(
+      if (!pantry) {
+        return res.status(500).json({
+          success: false,
+          message: "Pantry not available",
+        })
+      }
+      const row = pantry.items.find(
         (item) => String(item.foodId) === String(foodItem._id)
       )
-      const available = Number(row?.quantity) || 0
+      if (!row) {
+        return res.status(400).json({
+          success: false,
+          message: "Item not found in pantry",
+        })
+      }
+      const available = Number(row.quantity) || 0
       if (available < quantity) {
         return res.status(400).json({
           success: false,
           message: "Not enough quantity in pantry",
         })
       }
-      if (row) {
-        row.quantity = available - quantity
-      }
+      row.quantity = available - quantity
     } else if (foodItem.quantities[fromLocation] < quantity) {
       return res.status(400).json({
         success: false,
@@ -572,7 +589,13 @@ export const moveItem = async (
       foodItem.quantities[fromLocation] -= quantity
     }
 
-    if (toLocation === "pantry" && pantry && fromLocation !== "pantry") {
+    if (toLocation === "pantry") {
+      if (!pantry) {
+        return res.status(500).json({
+          success: false,
+          message: "Pantry not available",
+        })
+      }
       const row = pantry.items.find(
         (item) => String(item.foodId) === String(foodItem._id)
       )
@@ -590,9 +613,13 @@ export const moveItem = async (
           addedFrom: "pantry",
         } as IPantryItem)
       }
-      foodItem.quantities.pantry = 0
-    } else if (toLocation !== "pantry") {
+    } else {
       foodItem.quantities[toLocation] += quantity
+    }
+
+    // Catalog must not keep pantry stock; that lives on the Pantry document.
+    if (usesPantry) {
+      foodItem.quantities.pantry = 0
     }
 
     if (pantry) {
