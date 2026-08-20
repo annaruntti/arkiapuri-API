@@ -71,10 +71,18 @@ FACEBOOK_APP_ID=your-facebook-app-id
 FACEBOOK_APP_SECRET=your-facebook-app-secret
 ```
 
-#### Google Vision API (for image recognition) - Optional
+#### Gemini AI (pantry scanner) - Optional
 ```env
-GOOGLE_APPLICATION_CREDENTIALS=./path/to/google-credentials.json
+GEMINI_API_KEY=your-gemini-api-key
+AI_MODEL=gemini-3.5-flash-lite
+AI_GRANT_PREMIUM=true
+AI_MONTHLY_CREDIT_LIMIT=40
+AI_MONTHLY_BUDGET_USD=20
 ```
+
+`GEMINI_API_KEY` comes from [Google AI Studio](https://aistudio.google.com/apikey). Without it the API starts, but pantry scan returns `not_configured`.
+
+For local testing, set `AI_GRANT_PREMIUM=true` so the household (or solo user) is treated as premium without a paid plan. Do not enable this in production.
 
 #### Error Tracking (for production) - Optional
 ```env
@@ -159,8 +167,13 @@ APPLE_CLIENT_SECRET=your-apple-client-secret
 FACEBOOK_APP_ID=your-facebook-app-id
 FACEBOOK_APP_SECRET=your-facebook-app-secret
 
-# Google Vision API (Optional)
-GOOGLE_APPLICATION_CREDENTIALS=./path/to/google-credentials.json
+# Gemini AI (pantry scanner)
+GEMINI_API_KEY=your-gemini-api-key
+# AI_MODEL=gemini-3.5-flash-lite
+# Local only: treat the household as premium so scan works without billing
+AI_GRANT_PREMIUM=true
+# AI_MONTHLY_CREDIT_LIMIT=40
+# AI_MONTHLY_BUDGET_USD=20
 
 # Error Tracking (Optional - for production)
 SENTRY_DSN=your-sentry-dsn-url
@@ -198,6 +211,33 @@ SENTRY_DSN=your-sentry-dsn-url
 
 ### Meals, Shopping Lists, Pantry, etc.
 For complete API documentation, see the Swagger docs at `/api-docs`
+
+### Gemini AI (pantry scanner)
+
+The pantry (pentteri) can be filled from a photo. The app sends a compressed JPEG to Gemini (`gemini-3.5-flash-lite` by default). The model returns structured product candidates (name, quantity, unit, confidence). The API does **not** write the pantry automatically: the user reviews and confirms items in the app.
+
+After names are set, the API looks up extra fields from the household catalog and Open Food Facts (categories and macros per 100 g). Scan uses a shared monthly credit pool on the household (or the solo user). Default limit is 40 credits; one pantry scan costs 2.
+
+| Method | Path | Auth | Credits | Description |
+| --- | --- | --- | --- | --- |
+| GET | `/ai/entitlement` | JWT | — | Plan, remaining credits, and feature costs |
+| POST | `/ai/pantry-scan` | JWT + premium | 2 | Detect products from a pantry photo |
+| POST | `/food-items/lookup-by-name` | JWT | — | Prefill category and nutrition by product name |
+
+`POST /ai/pantry-scan` body:
+
+```json
+{
+  "image": "<base64 JPEG/PNG/WebP>",
+  "mimeType": "image/jpeg"
+}
+```
+
+Successful scan returns `items` (candidates) and `usage` (`creditsCharged`, `remainingCredits`, `creditLimit`). The client then `POST /pantry/items` for the products the user selected.
+
+Reserved for later (not implemented yet): `recipe_suggest` (1 credit) and `dish_from_photo` (3 credits).
+
+Local eval harness: `npm run eval:pantry-scan` (see `scripts/eval/pantry-scan/README.md`).
 
 ## Security
 
@@ -289,6 +329,10 @@ Ensure these environment variables are set in Railway project:
 - `EMAIL_FROM_ADDRESS`: Sender email address (e.g., "noreply@arkiapuri.fi")
 - `FRONTEND_URL`: Your mobile app deep link or web URL (e.g., "arkiapuri://app")
 - `GOOGLE_CALLBACK_URL`: Set to "https://your-railway-url/auth/google/callback"
+- `GEMINI_API_KEY`: Google AI Studio key for pantry scan (optional; scan is disabled without it)
+- `AI_MODEL`: Gemini model id (default `gemini-3.5-flash-lite`)
+- `AI_MONTHLY_CREDIT_LIMIT`: Shared household/user monthly AI credits (default `40`)
+- `AI_MONTHLY_BUDGET_USD`: Global monthly spend cap (default `20`)
 
 ### Troubleshooting Production Deployment
 

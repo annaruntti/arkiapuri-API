@@ -69,6 +69,24 @@ const clampQuantity = (value: unknown): number => {
   return Math.round(parsed * 100) / 100
 }
 
+const pickCalories = (item?: CatalogFoodMatch): number | undefined => {
+  const calories = item?.calories ?? item?.nutrition?.calories
+  return Number.isFinite(Number(calories)) && Number(calories) > 0
+    ? Number(calories)
+    : undefined
+}
+
+const pickNutrition = (item?: CatalogFoodMatch) => {
+  if (!item) return undefined
+  const nutrition = item.nutrition
+  const calories = pickCalories(item)
+  if (!nutrition && calories == null) return undefined
+  return {
+    ...(nutrition || {}),
+    ...(calories != null ? { calories } : {}),
+  }
+}
+
 export const normalizePantryDetections = (
   detections: RawPantryDetection[],
   catalog: CatalogFoodMatch[] = [],
@@ -113,6 +131,10 @@ export const normalizePantryDetections = (
       foodId: catalogMatch?._id || null,
       alreadyInPantry: pantryKeys.has(key) || Boolean(catalogMatch && pantryKeys.has(pantryItemMergeKey(catalogMatch.name))),
       notes: detection.notes?.trim() || undefined,
+      calories: pickCalories(catalogMatch),
+      nutrition: pickNutrition(catalogMatch),
+      matchSource: catalogMatch ? "catalog" : "inferred",
+      matchName: catalogMatch?.name,
     }
 
     const existing = grouped.get(key)

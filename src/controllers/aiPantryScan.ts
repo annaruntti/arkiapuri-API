@@ -19,6 +19,7 @@ import { FEATURE_CREDIT_COST, FEATURE_ESTIMATED_USD } from "../services/ai/confi
 import { scanPantryImage } from "../services/ai/useCases/pantryScan"
 import { AiNotConfiguredError, AiResponseError } from "../services/ai/llmClient"
 import type { CatalogFoodMatch } from "../services/ai/types"
+import { toCatalogFoodMatch } from "../services/foodNameLookup"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -108,16 +109,13 @@ export const scanPantry = async (
           : { user: req.user._id }
 
       const [catalogDocs, pantry] = await Promise.all([
-        FoodItem.find(catalogQuery).select("name category unit").lean(),
+        FoodItem.find(catalogQuery)
+          .select("name category unit calories nutrition openFoodFactsData")
+          .lean(),
         getCanonicalPantry(req.user),
       ])
 
-      const catalog: CatalogFoodMatch[] = catalogDocs.map((item) => ({
-        _id: String(item._id),
-        name: item.name,
-        category: item.category || [],
-        unit: item.unit || "kpl",
-      }))
+      const catalog: CatalogFoodMatch[] = catalogDocs.map(toCatalogFoodMatch)
       const pantryNames = pantry.items.map((item) => item.name)
 
       const result = await scanPantryImage({

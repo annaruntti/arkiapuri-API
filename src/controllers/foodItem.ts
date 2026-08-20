@@ -17,6 +17,7 @@ import {
   resolveHouseholdId,
 } from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
+import { lookupFoodsByName, toCatalogFoodMatch } from "../services/foodNameLookup"
 import type { IMeal } from "../models/meal"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -861,6 +862,59 @@ export const findOrCreateFoodItem = async (
   } catch (error: unknown) {
     console.error("Error in findOrCreateFoodItem:", error)
     res.status(400).json({
+      success: false,
+      error: getErrorMessage(error),
+    })
+  }
+}
+
+export const lookupFoodItemsByName = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { name?: string; names?: string[] }
+  >,
+  res: Response
+) => {
+  try {
+    const names = Array.isArray(req.body?.names)
+      ? req.body.names
+      : req.body?.name
+        ? [req.body.name]
+        : []
+    const cleaned = names
+      .map((name) => String(name || "").trim())
+      .filter(Boolean)
+
+    if (cleaned.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Tuotenimi puuttuu",
+      })
+    }
+
+    const householdId = resolveHouseholdId(req.user)
+    const memberIds = householdId
+      ? await getHouseholdMemberIds(householdId)
+      : []
+    const catalogQuery =
+      memberIds.length > 0
+        ? { user: { $in: memberIds } }
+        : { user: req.user._id }
+
+    const catalogDocs = await FoodItem.find(catalogQuery)
+      .select("name category unit calories nutrition openFoodFactsData")
+      .lean()
+
+    const results = await lookupFoodsByName(
+      cleaned,
+      catalogDocs.map(toCatalogFoodMatch)
+    )
+
+    res.json({ success: true, results })
+  } catch (error: unknown) {
+    console.error("Error in lookupFoodItemsByName:", error)
+    res.status(500).json({
       success: false,
       error: getErrorMessage(error),
     })

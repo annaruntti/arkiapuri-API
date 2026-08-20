@@ -50,12 +50,28 @@ export interface PantryScanModelOutput {
   items: RawPantryDetection[]
 }
 
+export interface FoodNutrition {
+  calories?: number
+  proteins?: number
+  carbohydrates?: number
+  sugars?: number
+  fat?: number
+  saturatedFat?: number
+  fiber?: number
+  sodium?: number
+  salt?: number
+}
+
 export interface CatalogFoodMatch {
   _id: string
   name: string
   category: string[]
   unit: string
+  calories?: number
+  nutrition?: FoodNutrition
 }
+
+export type FoodMatchSource = "catalog" | "openfoodfacts" | "inferred"
 
 export interface NormalizedPantryCandidate {
   name: string
@@ -67,6 +83,11 @@ export interface NormalizedPantryCandidate {
   foodId: string | null
   alreadyInPantry: boolean
   notes?: string
+  calories?: number
+  nutrition?: FoodNutrition
+  matchSource?: FoodMatchSource
+  matchName?: string
+  barcode?: string
 }
 
 export interface AiEntitlement {

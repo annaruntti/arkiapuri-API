@@ -12,12 +12,14 @@ import {
   removeFoodItemImage,
   findOrCreateFoodItem,
   checkItemAvailability,
+  lookupFoodItemsByName,
 } from "../controllers/foodItem"
 
 const router = Router()
 
 router.get("/food-items", isAuth, getFoodItems)
 router.post("/food-items/check-availability", isAuth, checkItemAvailability)
+router.post("/food-items/lookup-by-name", isAuth, lookupFoodItemsByName)
 router.post("/food-items/find-or-create", isAuth, findOrCreateFoodItem)
 router.post("/food-items", isAuth, createFoodItem)
 router.put("/food-items/:id", isAuth, updateFoodItem)

@@ -1,6 +1,6 @@
 import { Response } from "express"
 import type { Model, Types } from "mongoose"
-import type { IFoodItem } from "../models/foodItem"
+import type { IFoodItem, IFoodItemNutrition } from "../models/foodItem"
 import type { IPantryItem } from "../models/pantry"
 import {
   AuthenticatedRequest,
@@ -13,6 +13,10 @@ import {
   mergeDuplicatePantryItems,
   mergeProcessedPantryItems,
 } from "../helpers/pantryHelpers"
+import {
+  getHouseholdMemberIds,
+  resolveHouseholdId,
+} from "../helpers/householdHelpers"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -24,6 +28,7 @@ interface AddFoodItemToPantryBody {
   unit?: string
   price?: number
   calories?: number
+  nutrition?: IFoodItemNutrition
   expirationDate?: string | Date
   foodId?: string
 }
@@ -128,6 +133,7 @@ export const addFoodItemToPantry = async (
       unit,
       price,
       calories,
+      nutrition,
       expirationDate,
       foodId,
     } = req.body
@@ -141,14 +147,22 @@ export const addFoodItemToPantry = async (
 
     const pantryQty = parsePantryQuantity(quantity)
     const normalizedName = name?.trim() || ""
+    const householdId = resolveHouseholdId(req.user)
+    const memberIds = householdId
+      ? await getHouseholdMemberIds(householdId)
+      : []
+    const ownerQuery =
+      memberIds.length > 0
+        ? { user: { $in: memberIds } }
+        : { user: req.user._id }
 
     let foodItem = foodId
-      ? await FoodItem.findOne({ _id: foodId, user: req.user._id })
+      ? await FoodItem.findOne({ _id: foodId, ...ownerQuery })
       : null
 
     if (!foodItem && normalizedName) {
       foodItem = await FoodItem.findOne({
-        user: req.user._id,
+        ...ownerQuery,
         name: new RegExp(
           `^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
           "i"
@@ -170,6 +184,7 @@ export const addFoodItemToPantry = async (
         unit: unit || "kpl",
         price,
         calories,
+        nutrition,
         user: req.user._id,
         locations: [],
         quantities: {
@@ -184,6 +199,12 @@ export const addFoodItemToPantry = async (
       if (unit) foodItem.unit = unit
       if (price !== undefined) foodItem.price = price
       if (calories !== undefined) foodItem.calories = calories
+      if (nutrition) {
+        foodItem.nutrition = {
+          ...(foodItem.nutrition || {}),
+          ...nutrition,
+        }
+      }
       await foodItem.save()
     }
 

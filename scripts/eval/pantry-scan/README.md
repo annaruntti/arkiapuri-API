@@ -1,6 +1,6 @@
 # Pentteriskannerin evaluation
 
-Tämä harjotus mittaa, miten hyvin malli tunnistaa elintarvikkeita kuvasta.
+Tämä harjotus mittaa, miten hyvin **Gemini** tunnistaa elintarvikkeita kuvasta. Skannaus on API:n `POST /ai/pantry-scan` -toiminto (`gemini-3.5-flash-lite` oletuksena). Google Cloud Visionia ei käytetä.
 
 ## Fixtures
 

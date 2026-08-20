@@ -16,7 +16,6 @@
   "author": "Anna Tiala",
   "license": "ISC",
   "dependencies": {
-    "@google-cloud/vision": "^5.3.7",
     "@google/genai": "^2.18.0",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.8.0",
@@ -41,7 +40,6 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/mongoose": "^5.11.96",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
@@ -52,15 +50,6 @@
   "overrides": {
     "brace-expansion": "5.0.8",
     "minimatch": "10.2.5",
-    "glob": "11.1.0",
-    "gaxios": {
-      "uuid": "11.1.1"
-    },
-    "google-gax": {
-      "uuid": "11.1.1"
-    },
-    "teeny-request": {
-      "uuid": "11.1.1"
-    }
+    "glob": "11.1.0"
   }
 }

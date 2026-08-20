@@ -167,6 +167,29 @@ class OpenFoodFactsService {
     }
   }
 
+  hasConfidentNameMatch(productName: string, query: string): boolean {
+    const queryLower = query.toLowerCase().trim()
+    if (!queryLower || !productName) return false
+    return this.scoreTextMatch(productName, queryLower) !== null
+  }
+
+  async findConfidentProductByName(
+    query: string
+  ): Promise<FormattedProduct | null> {
+    const trimmed = query.trim()
+    if (trimmed.length < 2) return null
+    try {
+      const result = await this.searchByText(trimmed, 1, 8)
+      const product = result.products[0]
+      if (!product?.name) return null
+      if (!this.hasConfidentNameMatch(product.name, trimmed)) return null
+      return product
+    } catch (error: any) {
+      console.warn("OFF name lookup failed:", error?.message || error)
+      return null
+    }
+  }
+
   /**
    * Full-text search via Search-a-licious (recommended), with legacy cgi/search.pl fallback.
    * Over-fetches from OFF, then keeps only relevant name/brand matches.
