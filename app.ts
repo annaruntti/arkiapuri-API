@@ -30,6 +30,12 @@ const validateEnv = (): void => {
     )
   }
 
+  if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+    console.warn(
+      "Warning: GEMINI_API_KEY is not configured. AI pantry scan will be unavailable."
+    )
+  }
+
   // Set default APP_URL if not provided
   if (!process.env.APP_URL) {
     process.env.APP_URL = "http://localhost:3000"
@@ -51,6 +57,7 @@ import pantryRouter from "./src/routes/pantry"
 import visionRouter from "./src/routes/vision"
 import openFoodFactsRouter from "./src/routes/openFoodFacts"
 import householdRouter from "./src/routes/household"
+import aiRouter from "./src/routes/ai"
 
 const app = express()
 
@@ -113,8 +120,8 @@ app.use(
   })
 )
 
-// Uses JSON middleware
-app.use(express.json())
+// Uses JSON middleware (8mb so pantry-scan images fit after client compress)
+app.use(express.json({ limit: "8mb" }))
 
 // Creates uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads")
@@ -152,6 +159,8 @@ app.use(pantryRouter)
 app.use(visionRouter)
 app.use("/api/openfoodfacts", openFoodFactsRouter)
 app.use(householdRouter)
+app.use(aiRouter)
+console.log("AI routes enabled: GET /ai/entitlement, POST /ai/pantry-scan")
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
 

@@ -26,6 +26,7 @@ export interface IUser extends Document {
   resetPasswordToken?: string
   resetPasswordExpiry?: Date
   household?: mongoose.Types.ObjectId | null
+  plan: "free" | "premium"
   createdAt: Date
   updatedAt: Date
   // Methods
@@ -101,6 +102,11 @@ const userSchema = new Schema<IUser>(
       type: Schema.Types.ObjectId,
       ref: "Household",
       default: null,
+    },
+    plan: {
+      type: String,
+      enum: ["free", "premium"],
+      default: "free",
     },
   },
   {

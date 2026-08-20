@@ -50,6 +50,7 @@ export const createHousehold = async (
           joinedAt: new Date(),
         },
       ],
+      plan: req.user.plan === "premium" ? "premium" : "free",
     })
 
     await household.save()

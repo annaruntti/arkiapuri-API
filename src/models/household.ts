@@ -23,6 +23,7 @@ export interface IHousehold extends Document {
   owner: mongoose.Types.ObjectId
   members: IHouseholdMember[]
   settings: IHouseholdSettings
+  plan: "free" | "premium"
   createdAt: Date
   updatedAt: Date
   // Methods
@@ -72,6 +73,11 @@ const householdSchema = new Schema<IHousehold>(
         pantry: { type: Boolean, default: true },
         schedules: { type: Boolean, default: true },
       },
+    },
+    plan: {
+      type: String,
+      enum: ["free", "premium"],
+      default: "free",
     },
   },
   {

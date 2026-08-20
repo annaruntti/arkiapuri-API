@@ -1,0 +1,177 @@
+[
+  {
+    "id": "01",
+    "file": "01.jpg",
+    "tags": ["single-item", "package"],
+    "notes": "Yksi maitopurkki lähikuvassa",
+    "expected": ["maito"]
+  },
+  {
+    "id": "02",
+    "file": "02.jpg",
+    "tags": ["single-item", "produce"],
+    "notes": "Tomaattirasia pöydällä",
+    "expected": ["tomaatit"]
+  },
+  {
+    "id": "03",
+    "file": "03.jpg",
+    "tags": ["fridge", "few-items"],
+    "notes": "Jääkaappi: maito ja kananmunat",
+    "expected": ["maito", "kananmunat"]
+  },
+  {
+    "id": "04",
+    "file": "04.jpg",
+    "tags": ["fridge", "few-items"],
+    "notes": "Juusto ja tomaatti hyllyllä",
+    "expected": ["juusto", "tomaatti"]
+  },
+  {
+    "id": "05",
+    "file": "05.jpg",
+    "tags": ["cupboard", "dry-goods"],
+    "notes": "Kuiva-ainekaappi: riisi ja pasta",
+    "expected": ["riisi", "pasta"]
+  },
+  {
+    "id": "06",
+    "file": "06.jpg",
+    "tags": ["fridge", "full"],
+    "notes": "Täysi jääkaappi peruselintarvikkeita",
+    "expected": ["maito", "voi", "kananmunat", "jogurtti", "kurkku", "tomaatit"]
+  },
+  {
+    "id": "07",
+    "file": "07.jpg",
+    "tags": ["fridge", "poor-lighting"],
+    "notes": "Hämärä jääkaappi, oven valo vain",
+    "expected": ["maito", "mehu"]
+  },
+  {
+    "id": "08",
+    "file": "08.jpg",
+    "tags": ["fridge", "occlusion"],
+    "notes": "Osittain peittyneet tuotteet etuhyllyllä",
+    "expected": ["kerma", "juusto", "kinkku"]
+  },
+  {
+    "id": "09",
+    "file": "09.jpg",
+    "tags": ["produce", "fridge"],
+    "notes": "Vihanneslaatikko",
+    "expected": ["porkkana", "sipuli", "peruna"]
+  },
+  {
+    "id": "10",
+    "file": "10.jpg",
+    "tags": ["bottles", "fridge"],
+    "notes": "Ovihyllyn pullot",
+    "expected": ["ketsuppi", "sinappi", "maito"]
+  },
+  {
+    "id": "11",
+    "file": "11.jpg",
+    "tags": ["cupboard", "dry-goods"],
+    "notes": "Jauhot ja sokeri",
+    "expected": ["jauho", "sokeri"]
+  },
+  {
+    "id": "12",
+    "file": "12.jpg",
+    "tags": ["fridge", "dairy"],
+    "notes": "Maitohylly, useita rasvoja",
+    "expected": ["rasvaton maito", "kerma", "voi"]
+  },
+  {
+    "id": "13",
+    "file": "13.jpg",
+    "tags": ["fridge", "protein"],
+    "notes": "Liha ja kana pakkauksissa",
+    "expected": ["jauheliha", "kana"]
+  },
+  {
+    "id": "14",
+    "file": "14.jpg",
+    "tags": ["cupboard", "canned"],
+    "notes": "Säilykehylly",
+    "expected": ["tonnikala", "tomaattimurska"]
+  },
+  {
+    "id": "15",
+    "file": "15.jpg",
+    "tags": ["fridge", "angle"],
+    "notes": "Kuva otettu vinosti oven raosta",
+    "expected": ["maito", "jogurtti", "juusto"]
+  },
+  {
+    "id": "16",
+    "file": "16.jpg",
+    "tags": ["glare", "fridge"],
+    "notes": "Heijastus pakkauksissa",
+    "expected": ["voi", "maito"]
+  },
+  {
+    "id": "17",
+    "file": "17.jpg",
+    "tags": ["freezer"],
+    "notes": "Pakastelokero",
+    "expected": ["pakasteherneet", "jäätelö"]
+  },
+  {
+    "id": "18",
+    "file": "18.jpg",
+    "tags": ["bread", "cupboard"],
+    "notes": "Leipälaatikko",
+    "expected": ["leipä"]
+  },
+  {
+    "id": "19",
+    "file": "19.jpg",
+    "tags": ["beverages"],
+    "notes": "Juomahylly",
+    "expected": ["mehu", "vesi"]
+  },
+  {
+    "id": "20",
+    "file": "20.jpg",
+    "tags": ["mixed", "counter"],
+    "notes": "Ostoskassit tiskillä ennen kaappiin laittoa",
+    "expected": ["banaani", "maito", "kananmunat", "pasta"]
+  },
+  {
+    "id": "21",
+    "file": "21.jpg",
+    "tags": ["plant-protein"],
+    "notes": "Kasviproteiinit",
+    "expected": ["tofu", "linssit"]
+  },
+  {
+    "id": "22",
+    "file": "22.jpg",
+    "tags": ["spices", "cupboard"],
+    "notes": "Maustehylly, ei pidä listata tyhjiä purkkeja",
+    "expected": ["suola", "musta pippuri"]
+  },
+  {
+    "id": "23",
+    "file": "23.jpg",
+    "tags": ["far", "fridge"],
+    "notes": "Koko jääkaappi kaukaa, pienet etiketit",
+    "expected": ["maito", "kananmunat", "voi", "mehu"]
+  },
+  {
+    "id": "24",
+    "file": "24.jpg",
+    "tags": ["open-package", "fridge"],
+    "notes": "Avattu jogurtti ja puolikas kurkku",
+    "expected": ["jogurtti", "kurkku"]
+  },
+  {
+    "id": "25",
+    "file": "25.jpg",
+    "tags": ["empty-ish", "fridge"],
+    "notes": "Lähes tyhjä jääkaappi, yksi tuote",
+    "expected": ["sinappi"]
+  }
+]

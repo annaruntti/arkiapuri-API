@@ -21,6 +21,12 @@ const checkRequiredEnv = (): void => {
     )
     process.exit(1)
   }
+
+  if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+    console.warn(
+      "Warning: GEMINI_API_KEY is not configured. AI pantry scan will be unavailable."
+    )
+  }
 }
 
 export default checkRequiredEnv

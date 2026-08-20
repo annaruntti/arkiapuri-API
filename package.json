@@ -10,12 +10,14 @@
     "build": "tsc",
     "build:watch": "tsc --watch",
     "deploy": "npm run build && railway up",
-    "check-env": "tsx --env-file=.env src/utils/check-env.ts"
+    "check-env": "tsx --env-file=.env src/utils/check-env.ts",
+    "eval:pantry-scan": "tsx --env-file=.env scripts/eval/pantry-scan/run.ts"
   },
   "author": "Anna Tiala",
   "license": "ISC",
   "dependencies": {
     "@google-cloud/vision": "^5.3.7",
+    "@google/genai": "^2.18.0",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.8.0",
     "compression": "^1.8.0",
