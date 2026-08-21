@@ -1,5 +1,5 @@
 import { Request, Response } from "express"
-import type { Model } from "mongoose"
+import mongoose, { type Model } from "mongoose"
 import type { IHousehold, HouseholdRole } from "../models/household"
 import type { IInvitation } from "../models/invitation"
 import type { IUserModel } from "../models/user"
@@ -9,7 +9,10 @@ import {
   resolveModule,
 } from "../helpers/controllerUtils"
 import { sendFamilyInvitation } from "../services/emailService"
-import { shareHouseholdDocuments } from "../helpers/householdHelpers"
+import {
+  resolveHouseholdId,
+  shareHouseholdDocuments,
+} from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
 
 const Household = resolveModule<Model<IHousehold>>(
@@ -20,6 +23,127 @@ const Invitation = resolveModule<Model<IInvitation>>(
   require("../models/invitation")
 )
 const { v4: uuidv4 } = require("uuid") as { v4: () => string }
+
+const resolveRefId = (value: unknown): string => {
+  if (value == null || value === "") return ""
+  if (typeof value === "string") {
+    if (
+      value === "undefined" ||
+      value === "null" ||
+      value.startsWith("[object ")
+    ) {
+      return ""
+    }
+    return value
+  }
+  if (value instanceof mongoose.Types.ObjectId) {
+    return value.toHexString()
+  }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
+    return value.toString("hex")
+  }
+  if (
+    ArrayBuffer.isView(value) &&
+    (value as ArrayLike<number>).length === 12
+  ) {
+    return Buffer.from(value as Uint8Array).toString("hex")
+  }
+  if (typeof value === "object") {
+    const obj = value as { _id?: unknown; toHexString?: () => string }
+    if (obj._id != null && obj._id !== value) return resolveRefId(obj._id)
+    if (typeof obj.toHexString === "function") return obj.toHexString()
+  }
+  return ""
+}
+
+const householdIdForUser = (user: AuthenticatedRequest["user"]) =>
+  resolveHouseholdId(user) || user.household
+
+const isListedMember = (household: IHousehold, userId: unknown): boolean => {
+  const id = resolveRefId(userId)
+  if (!id) return false
+  if (resolveRefId(household.owner) === id) return true
+  return household.members.some(
+    (member) => resolveRefId(member.userId) === id
+  )
+}
+
+const ensureOwnerInMembers = async (household: IHousehold): Promise<void> => {
+  const ownerId = resolveRefId(household.owner)
+  if (!ownerId) return
+  const inMembers = household.members.some(
+    (member) => resolveRefId(member.userId) === ownerId
+  )
+  if (inMembers) return
+  household.members.unshift({
+    userId: household.owner,
+    role: "owner",
+    joinedAt: household.createdAt || new Date(),
+  } as IHousehold["members"][number])
+  await household.save()
+}
+
+const findHouseholdForUser = async (
+  user: AuthenticatedRequest["user"]
+): Promise<IHousehold | null> => {
+  const userId = user._id
+  const pointer = householdIdForUser(user)
+  if (pointer) {
+    const byPointer = await Household.findById(pointer)
+    if (byPointer && isListedMember(byPointer, userId)) {
+      return byPointer
+    }
+    if (byPointer && resolveRefId(byPointer.owner) === resolveRefId(userId)) {
+      return byPointer
+    }
+  }
+
+  const owned = await Household.findOne({ owner: userId })
+  if (owned) return owned
+
+  return Household.findOne({ "members.userId": userId })
+}
+
+const restoreUserHouseholdLink = async (
+  user: AuthenticatedRequest["user"],
+  household: IHousehold
+): Promise<void> => {
+  const current = resolveRefId(householdIdForUser(user))
+  const next = resolveRefId(household._id)
+  if (current === next) return
+  await User.findByIdAndUpdate(user._id, { household: household._id })
+  user.household = household._id
+}
+
+const serializeHouseholdMembers = <
+  T extends { members?: Array<{ userId?: unknown }> }
+>(
+  household: T,
+  rawMemberUserIds: string[]
+): T => {
+  const members = household.members?.map((member, index) => {
+    const userId = member.userId
+    if (userId && typeof userId === "object" && resolveRefId(userId)) {
+      return member
+    }
+    const fallbackId = rawMemberUserIds[index]
+    if (!fallbackId) return member
+    return {
+      ...member,
+      userId: { _id: fallbackId },
+    }
+  })
+  return { ...household, members }
+}
+
+const loadPendingInvitations = async (householdId: unknown) =>
+  Invitation.find({
+    household: householdId,
+    status: "pending",
+    expiresAt: { $gt: new Date() },
+  })
+    .sort({ createdAt: -1 })
+    .lean()
 
 export const createHousehold = async (
   req: AuthenticatedRequest<
@@ -77,21 +201,13 @@ export const createHousehold = async (
 export const getHousehold = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user._id
-
-    if (!req.user.household) {
-      return res.json({
-        success: true,
-        household: null,
-        message: "Et ole vielä osa perhettä",
-      })
-    }
-
-    const household = await Household.findById(req.user.household)
-      .populate("members.userId", "username email profileImage")
-      .populate("owner", "username email profileImage")
+    const household = await findHouseholdForUser(req.user)
 
     if (!household) {
-      await User.findByIdAndUpdate(userId, { household: null })
+      if (req.user.household) {
+        await User.findByIdAndUpdate(userId, { household: null })
+        req.user.household = null
+      }
       return res.json({
         success: true,
         household: null,
@@ -99,16 +215,27 @@ export const getHousehold = async (req: AuthenticatedRequest, res: Response) => 
       })
     }
 
-    if (!household.isMember(userId)) {
-      await User.findByIdAndUpdate(userId, { household: null })
-      return res.json({
-        success: true,
-        household: null,
-        message: "Et ole vielä osa perhettä",
-      })
-    }
+    await restoreUserHouseholdLink(req.user, household)
+    await ensureOwnerInMembers(household)
 
-    res.json({ success: true, household })
+    const rawMemberUserIds = household.members.map((member) =>
+      resolveRefId(member.userId)
+    )
+
+    await household.populate([
+      { path: "members.userId", select: "username email profileImage" },
+      { path: "owner", select: "username email profileImage" },
+    ])
+
+    const invitations = await loadPendingInvitations(household._id)
+
+    res.json({
+      success: true,
+      household: {
+        ...serializeHouseholdMembers(household.toObject(), rawMemberUserIds),
+        invitations,
+      },
+    })
   } catch (error: unknown) {
     console.error("Error fetching household:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -127,7 +254,7 @@ export const updateHousehold = async (
     const userId = req.user._id
     const { name, settings } = req.body
 
-    const household = await Household.findById(req.user.household)
+    const household = await Household.findById(householdIdForUser(req.user))
 
     if (!household) {
       return res.status(404).json({
@@ -189,7 +316,7 @@ export const inviteToHousehold = async (
       })
     }
 
-    const household = await Household.findById(req.user.household).populate(
+    const household = await Household.findById(householdIdForUser(req.user)).populate(
       "owner",
       "username email"
     )
@@ -290,7 +417,7 @@ export const leaveHousehold = async (
       })
     }
 
-    const household = await Household.findById(req.user.household)
+    const household = await Household.findById(householdIdForUser(req.user))
 
     if (!household) {
       return res.status(404).json({
@@ -299,7 +426,7 @@ export const leaveHousehold = async (
       })
     }
 
-    if (household.owner.toString() === userId.toString()) {
+    if (resolveRefId(household.owner) === userId.toString()) {
       return res.status(400).json({
         success: false,
         message:
@@ -308,7 +435,7 @@ export const leaveHousehold = async (
     }
 
     household.members = household.members.filter(
-      (member) => member.userId.toString() !== userId.toString()
+      (member) => resolveRefId(member.userId) !== userId.toString()
     )
 
     await household.save()
@@ -332,7 +459,7 @@ export const removeMember = async (
     const userId = req.user._id
     const { memberId } = req.params
 
-    const household = await Household.findById(req.user.household)
+    const household = await Household.findById(householdIdForUser(req.user))
 
     if (!household) {
       return res.status(404).json({
@@ -349,19 +476,50 @@ export const removeMember = async (
       })
     }
 
-    if (household.owner.toString() === memberId) {
+    const targetId = String(memberId)
+    if (!targetId || targetId === "undefined") {
+      return res.status(400).json({
+        success: false,
+        message: "Jäsenen tunniste puuttuu",
+      })
+    }
+
+    if (resolveRefId(household.owner) === targetId) {
       return res.status(400).json({
         success: false,
         message: "Omistajaa ei voi poistaa",
       })
     }
 
-    household.members = household.members.filter(
-      (member) => member.userId.toString() !== memberId
-    )
+    const nextMembers = household.members.filter((member) => {
+      const memberUserId = resolveRefId(member.userId)
+      const memberDocId = resolveRefId(
+        (member as { _id?: unknown })._id
+      )
+      return memberUserId !== targetId && memberDocId !== targetId
+    })
 
+    if (nextMembers.length === household.members.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Jäsentä ei löytynyt",
+      })
+    }
+
+    const removedUserIds = household.members
+      .filter((member) => !nextMembers.includes(member))
+      .map((member) => resolveRefId(member.userId))
+      .filter(Boolean)
+
+    household.members = nextMembers
     await household.save()
-    await User.findByIdAndUpdate(memberId, { household: null })
+
+    if (removedUserIds.length > 0) {
+      await User.updateMany(
+        { _id: { $in: removedUserIds } },
+        { household: null }
+      )
+    }
 
     res.json({
       success: true,
@@ -369,6 +527,61 @@ export const removeMember = async (
     })
   } catch (error: unknown) {
     console.error("Error removing member:", error)
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+export const cancelInvitation = async (
+  req: AuthenticatedRequest<{ invitationId: string }>,
+  res: Response
+) => {
+  try {
+    const userId = req.user._id
+    const { invitationId } = req.params
+    const household = await Household.findById(householdIdForUser(req.user))
+
+    if (!household) {
+      return res.status(404).json({
+        success: false,
+        message: "Perhettä ei löytynyt",
+      })
+    }
+
+    const role = household.getUserRole(userId)
+    if (role !== "owner" && role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Sinulla ei ole oikeutta perua kutsuja",
+      })
+    }
+
+    const invitation = await Invitation.findOne({
+      _id: invitationId,
+      household: household._id,
+    })
+
+    if (!invitation) {
+      return res.status(404).json({
+        success: false,
+        message: "Kutsua ei löytynyt",
+      })
+    }
+
+    if (invitation.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Kutsu ei ole enää voimassa",
+      })
+    }
+
+    await Invitation.deleteOne({ _id: invitation._id })
+
+    res.json({
+      success: true,
+      message: "Kutsu peruttu",
+    })
+  } catch (error: unknown) {
+    console.error("Error cancelling invitation:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
@@ -393,7 +606,7 @@ export const updateMemberRole = async (
       })
     }
 
-    const household = await Household.findById(req.user.household)
+    const household = await Household.findById(householdIdForUser(req.user))
 
     if (!household) {
       return res.status(404).json({
@@ -402,7 +615,7 @@ export const updateMemberRole = async (
       })
     }
 
-    if (household.owner.toString() !== userId.toString()) {
+    if (resolveRefId(household.owner) !== userId.toString()) {
       return res.status(403).json({
         success: false,
         message: "Vain omistaja voi muuttaa jäsenten rooleja",
@@ -410,7 +623,7 @@ export const updateMemberRole = async (
     }
 
     const member = household.members.find(
-      (m) => m.userId.toString() === memberId
+      (m) => resolveRefId(m.userId) === String(memberId)
     )
 
     if (!member) {
@@ -420,7 +633,7 @@ export const updateMemberRole = async (
       })
     }
 
-    if (household.owner.toString() === memberId) {
+    if (resolveRefId(household.owner) === String(memberId)) {
       return res.status(400).json({
         success: false,
         message: "Omistajan roolia ei voi muuttaa",
@@ -447,7 +660,7 @@ export const deleteHousehold = async (
 ) => {
   try {
     const userId = req.user._id
-    const household = await Household.findById(req.user.household)
+    const household = await Household.findById(householdIdForUser(req.user))
 
     if (!household) {
       return res.status(404).json({
@@ -456,7 +669,7 @@ export const deleteHousehold = async (
       })
     }
 
-    if (household.owner.toString() !== userId.toString()) {
+    if (resolveRefId(household.owner) !== userId.toString()) {
       return res.status(403).json({
         success: false,
         message: "Vain omistaja voi poistaa perheen",
