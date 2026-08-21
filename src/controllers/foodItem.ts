@@ -311,13 +311,15 @@ export const updateFoodItem = async (
       }
     }
 
-    if (updates.nutrition !== undefined || updates.calories !== undefined) {
+    if (updates.nutrition !== undefined) {
       const nutritionFields = normalizeNutrition(
         updates.nutrition,
         updates.calories
       )
       updates.calories = nutritionFields.calories
       updates.nutrition = nutritionFields.nutrition
+    } else if (updates.calories !== undefined) {
+      updates.calories = Number(updates.calories) || 0
     }
 
     if (updates.isFood !== undefined) {
