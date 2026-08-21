@@ -3,6 +3,11 @@ import crypto from "crypto"
 import User from "../models/user"
 import { sendPasswordResetEmail } from "../services/emailService"
 import { SOCIAL_TOKEN_TTL, signUserToken } from "../helpers/authToken"
+import { authRateLimiter } from "../middleware/security"
+import {
+  getPasswordLengthError,
+  hashResetToken,
+} from "../helpers/passwordPolicy"
 
 const router = Router()
 
@@ -275,7 +280,7 @@ router.get("/facebook/callback", async (req: Request, res: Response) => {
 })
 
 // Social auth endpoint for mobile app
-router.post("/social", async (req: Request, res: Response) => {
+router.post("/social", authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { provider, token } = req.body
 
@@ -324,7 +329,7 @@ router.post("/social", async (req: Request, res: Response) => {
 })
 
 // Forgot Password
-router.post("/forgot-password", async (req: Request, res: Response) => {
+router.post("/forgot-password", authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { email } = req.body
 
@@ -348,7 +353,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
     const resetToken = crypto.randomBytes(32).toString("hex")
     const resetTokenExpiry = new Date(Date.now() + 3600000)
 
-    user.resetPasswordToken = resetToken
+    user.resetPasswordToken = hashResetToken(resetToken)
     user.resetPasswordExpiry = resetTokenExpiry
     await user.save()
 
@@ -398,7 +403,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 })
 
 // Reset Password
-router.post("/reset-password", async (req: Request, res: Response) => {
+router.post("/reset-password", authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { token, newPassword } = req.body
 
@@ -406,12 +411,13 @@ router.post("/reset-password", async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "Token ja uusi salasana ovat pakollisia" })
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ success: false, message: "Salasanan pituuden tulee olla vähintään 6 merkkiä" })
+    const passwordError = getPasswordLengthError(newPassword)
+    if (passwordError) {
+      return res.status(400).json({ success: false, message: passwordError })
     }
 
     const user = await User.findOne({
-      resetPasswordToken: token,
+      resetPasswordToken: hashResetToken(token),
       resetPasswordExpiry: { $gt: new Date() },
     })
 

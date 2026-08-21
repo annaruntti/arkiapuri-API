@@ -1,4 +1,5 @@
 import mongoose, { Document, Model, Schema } from "mongoose"
+import { BCRYPT_ROUNDS } from "../helpers/passwordPolicy"
 
 export interface IUserPreferences {
   showNutrition: boolean
@@ -124,7 +125,7 @@ userSchema.pre("save", function (next) {
     if (!this.isNew) {
       this.tokenVersion = (this.tokenVersion || 0) + 1
     }
-    bcrypt.hash(this.password, 8, (err, hash) => {
+    bcrypt.hash(this.password, BCRYPT_ROUNDS, (err, hash) => {
       if (err) return next(err)
       this.password = hash
       next()

@@ -1,8 +1,10 @@
 import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
+import { openFoodFactsRateLimiter } from "../middleware/security"
 import * as openFoodFactsController from "../controllers/openFoodFacts"
 
 const router = Router()
+router.use(openFoodFactsRateLimiter)
 
 /**
  * @swagger

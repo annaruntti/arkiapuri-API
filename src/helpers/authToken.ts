@@ -2,7 +2,7 @@ import jwt, { type SignOptions } from "jsonwebtoken"
 import User from "../models/user"
 
 export const EMAIL_TOKEN_TTL = "1d" as const
-export const SOCIAL_TOKEN_TTL = "30d" as const
+export const SOCIAL_TOKEN_TTL = "7d" as const
 
 export type AuthTokenPayload = {
   userId: string

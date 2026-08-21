@@ -60,6 +60,9 @@ import aiRouter from "./src/routes/ai"
 
 const app = express()
 
+// Railway (and similar hosts) terminate TLS in front of the app.
+app.set("trust proxy", 1)
+
 // Uses helmet() as a function, not just the reference
 app.use(
   helmet({
@@ -82,9 +85,10 @@ app.use(
       if (!origin) return callback(null, true)
 
       if (process.env.NODE_ENV === "production") {
-        const allowedOrigins = [
-          process.env.CORS_ORIGIN || "https://my-frontend-url.com",
-        ]
+        const allowedOrigins = (process.env.CORS_ORIGIN || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
         if (allowedOrigins.includes(origin)) {
           return callback(null, true)
         }
@@ -119,8 +123,9 @@ app.use(
   })
 )
 
-// Uses JSON middleware (8mb so pantry-scan images fit after client compress)
-app.use(express.json({ limit: "8mb" }))
+// Keep the large JSON body limit on pantry-scan only; other routes stay small.
+app.use("/ai/pantry-scan", express.json({ limit: "8mb" }))
+app.use(express.json({ limit: "200kb" }))
 
 // Creates uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads")
@@ -160,7 +165,9 @@ app.use(householdRouter)
 app.use(aiRouter)
 console.log("AI routes enabled: GET /ai/entitlement, POST /ai/pantry-scan")
 
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))
+}
 
 // Development route to see all registered routes
 if (process.env.NODE_ENV === "development") {

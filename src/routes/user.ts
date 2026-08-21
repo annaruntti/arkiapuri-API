@@ -1,6 +1,7 @@
 import { Router, Request } from "express"
 import multer from "multer"
 import { isAuth } from "../middlewares/auth"
+import { authRateLimiter } from "../middleware/security"
 import {
   createUser,
   userSignIn,
@@ -35,8 +36,20 @@ const fileFilter = (
 
 const uploads = multer({ storage, fileFilter })
 
-router.post("/create-user", validateUserSignUp, userVlidation, createUser)
-router.post("/sign-in", validateUserSignIn, userVlidation, userSignIn)
+router.post(
+  "/create-user",
+  authRateLimiter,
+  validateUserSignUp,
+  userVlidation,
+  createUser
+)
+router.post(
+  "/sign-in",
+  authRateLimiter,
+  validateUserSignIn,
+  userVlidation,
+  userSignIn
+)
 router.post("/sign-out", isAuth, signOut)
 router.post("/upload-profile", isAuth, uploads.single("profile"), uploadProfile)
 router.get("/profile", isAuth, getUserProfile)

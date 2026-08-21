@@ -2,6 +2,7 @@ import { Router } from "express"
 import { isAuth } from "../middlewares/auth"
 import { requireAiAccess } from "../middlewares/requireAiAccess"
 import { getAiStatus, scanPantry } from "../controllers/aiPantryScan"
+import { aiRateLimiter } from "../middleware/security"
 
 const router = Router()
 
@@ -63,7 +64,7 @@ const router = Router()
  *         description: GEMINI_API_KEY missing or global AI budget exceeded
  */
 
-router.get("/ai/entitlement", isAuth, getAiStatus)
-router.post("/ai/pantry-scan", isAuth, requireAiAccess("pantry_scan"), scanPantry)
+router.get("/ai/entitlement", isAuth, aiRateLimiter, getAiStatus)
+router.post("/ai/pantry-scan", isAuth, aiRateLimiter, requireAiAccess("pantry_scan"), scanPantry)
 
 export default router

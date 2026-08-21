@@ -1,5 +1,9 @@
 import { check, validationResult } from "express-validator"
 import { Request, Response, NextFunction } from "express"
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../../helpers/passwordPolicy"
 
 export const validateUserSignUp = [
   check("username")
@@ -17,8 +21,10 @@ export const validateUserSignUp = [
     .not()
     .isEmpty()
     .withMessage("Password is empty!")
-    .isLength({ min: 8, max: 20 })
-    .withMessage("Password must be 3 to 20 characters long!"),
+    .isLength({ min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })
+    .withMessage(
+      `Password must be ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH} characters long!`
+    ),
   check("confirmPassword")
     .trim()
     .not()
@@ -40,7 +46,7 @@ export const userVlidation = (
   if (!result.length) return next()
 
   const error = result[0].msg
-  res.json({ success: false, message: error })
+  res.status(400).json({ success: false, message: error })
 }
 
 export const validateUserSignIn = [

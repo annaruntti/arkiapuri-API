@@ -12,6 +12,7 @@ import {
   resolveModule,
 } from "../helpers/controllerUtils"
 import { EMAIL_TOKEN_TTL, revokeUserTokens, signUserToken } from "../helpers/authToken"
+import { getPasswordLengthError } from "../helpers/passwordPolicy"
 
 const User = resolveModule<IUserModel>(require("../models/user"))
 const Household = resolveModule<Model<IHousehold>>(require("../models/household"))
@@ -248,6 +249,13 @@ export const updateUserProfile = async (
         return res.status(400).json({
           success: false,
           message: "Nykyinen salasana on virheellinen",
+        })
+      }
+      const passwordError = getPasswordLengthError(newPassword)
+      if (passwordError) {
+        return res.status(400).json({
+          success: false,
+          message: passwordError,
         })
       }
       user.password = newPassword
