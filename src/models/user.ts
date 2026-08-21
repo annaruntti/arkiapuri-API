@@ -26,6 +26,7 @@ export interface IUser extends Document {
   resetPasswordToken?: string
   resetPasswordExpiry?: Date
   household?: mongoose.Types.ObjectId | null
+  tokenVersion: number
   plan: "free" | "premium"
   createdAt: Date
   updatedAt: Date
@@ -103,6 +104,10 @@ const userSchema = new Schema<IUser>(
       ref: "Household",
       default: null,
     },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
     plan: {
       type: String,
       enum: ["free", "premium"],
@@ -116,6 +121,9 @@ const userSchema = new Schema<IUser>(
 
 userSchema.pre("save", function (next) {
   if (this.isModified("password") && this.password) {
+    if (!this.isNew) {
+      this.tokenVersion = (this.tokenVersion || 0) + 1
+    }
     bcrypt.hash(this.password, 8, (err, hash) => {
       if (err) return next(err)
       this.password = hash

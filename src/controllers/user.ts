@@ -1,6 +1,5 @@
 import { Request, Response } from "express"
 import type { Model } from "mongoose"
-import jwt from "jsonwebtoken"
 import fs from "fs"
 import cloudinary from "../helper/imageUpload"
 import type { IUserModel } from "../models/user"
@@ -12,6 +11,7 @@ import {
   isCloudinaryConfigured,
   resolveModule,
 } from "../helpers/controllerUtils"
+import { EMAIL_TOKEN_TTL, revokeUserTokens, signUserToken } from "../helpers/authToken"
 
 const User = resolveModule<IUserModel>(require("../models/user"))
 const Household = resolveModule<Model<IHousehold>>(require("../models/household"))
@@ -122,11 +122,7 @@ export const userSignIn = async (
       })
     }
 
-    const token = jwt.sign(
-      { userId: user._id },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "1d" }
-    )
+    const token = signUserToken(user, EMAIL_TOKEN_TTL)
 
     const populatedUser = await User.findById(user._id)
       .select("-password")
@@ -178,21 +174,13 @@ export const uploadProfile = async (
 }
 
 export const signOut = async (req: AuthenticatedRequest, res: Response) => {
-  // Stateless JWT auth: client discards the token. No server-side token store.
-  if (!req.headers?.authorization) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Authorization fail!" })
+  try {
+    await revokeUserTokens(req.user._id)
+    res.json({ success: true, message: "Sign out successfully!" })
+  } catch (error: unknown) {
+    console.error("Error signing out:", error)
+    res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
-
-  const token = req.headers.authorization.split(" ")[1]
-  if (!token) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Authorization fail!" })
-  }
-
-  res.json({ success: true, message: "Sign out successfully!" })
 }
 
 export const getUserProfile = async (
@@ -253,7 +241,8 @@ export const updateUserProfile = async (
       user.username = username
     }
 
-    if (currentPassword && newPassword) {
+    const passwordChanged = Boolean(currentPassword && newPassword)
+    if (passwordChanged) {
       const isMatch = await user.comparePassword(currentPassword)
       if (!isMatch) {
         return res.status(400).json({
@@ -284,10 +273,14 @@ export const updateUserProfile = async (
     await user.save()
 
     const updatedUser = await User.findById(userId).select("-password")
+    const token = passwordChanged
+      ? signUserToken(user, EMAIL_TOKEN_TTL)
+      : undefined
 
     res.json({
       success: true,
       user: updatedUser,
+      ...(token ? { token } : {}),
       message: "Profile updated successfully",
     })
   } catch (error: unknown) {

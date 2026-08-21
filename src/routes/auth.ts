@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express"
-import jwt from "jsonwebtoken"
 import crypto from "crypto"
 import User from "../models/user"
 import { sendPasswordResetEmail } from "../services/emailService"
+import { SOCIAL_TOKEN_TTL, signUserToken } from "../helpers/authToken"
 
 const router = Router()
 
@@ -85,11 +85,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
       await user.save()
     }
 
-    const token = jwt.sign(
-      { userId: user._id, email: user.email },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "30d" }
-    )
+    const token = signUserToken(user, SOCIAL_TOKEN_TTL)
 
     const redirectUrl = isMobileRequest
       ? `arkiapuri://auth/callback?provider=google&token=${token}&user=${encodeURIComponent(JSON.stringify({ _id: user._id, email: user.email, name: user.name, profilePicture: user.profilePicture }))}`
@@ -180,11 +176,7 @@ router.post("/apple/callback", async (req: Request, res: Response) => {
       await dbUser.save()
     }
 
-    const token = jwt.sign(
-      { userId: dbUser._id, email: dbUser.email },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "30d" }
-    )
+    const token = signUserToken(dbUser, SOCIAL_TOKEN_TTL)
 
     const redirectUrl = `http://localhost:8081/AuthCallback?provider=apple&token=${token}&user=${encodeURIComponent(JSON.stringify({ _id: dbUser._id, email: dbUser.email, name: dbUser.name, profilePicture: dbUser.profilePicture }))}`
     res.redirect(redirectUrl)
@@ -269,11 +261,7 @@ router.get("/facebook/callback", async (req: Request, res: Response) => {
       await dbUser.save()
     }
 
-    const token = jwt.sign(
-      { userId: dbUser._id, email: dbUser.email },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "30d" }
-    )
+    const token = signUserToken(dbUser, SOCIAL_TOKEN_TTL)
 
     const redirectUrl = isMobileRequest
       ? `arkiapuri://auth/callback?provider=facebook&token=${token}&user=${encodeURIComponent(JSON.stringify({ _id: dbUser._id, email: dbUser.email, name: dbUser.name, profilePicture: dbUser.profilePicture }))}`
@@ -322,11 +310,7 @@ router.post("/social", async (req: Request, res: Response) => {
       await user.save()
     }
 
-    const jwtToken = jwt.sign(
-      { userId: user._id, email: user.email },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "30d" }
-    )
+    const jwtToken = signUserToken(user, SOCIAL_TOKEN_TTL)
 
     res.json({
       success: true,

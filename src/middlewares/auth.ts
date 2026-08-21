@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 import User, { IUser } from "../models/user"
+import type { AuthTokenPayload } from "../helpers/authToken"
 
-// Extend Express Request to include user
 declare global {
   namespace Express {
     interface Request {
@@ -11,8 +11,15 @@ declare global {
   }
 }
 
-interface JwtPayload {
-  userId: string
+const unauthorized = (res: Response, message = "unauthorized access!") => {
+  res.status(401).json({ success: false, message })
+}
+
+const getBearerToken = (header?: string): string | null => {
+  if (!header) return null
+  if (header.startsWith("Bearer ")) return header.slice(7).trim() || null
+  const parts = header.split(" ")
+  return parts[1] || null
 }
 
 export const isAuth = async (
@@ -20,35 +27,46 @@ export const isAuth = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  if (req.headers && req.headers.authorization) {
-    const token = req.headers.authorization.split(" ")[1]
+  const token = getBearerToken(req.headers?.authorization)
 
-    try {
-      const decode = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload
-      const user = await User.findById(decode.userId).populate("household")
-      if (!user) {
-        res.json({ success: false, message: "unauthorized access!" })
-        return
-      }
+  if (!token) {
+    unauthorized(res)
+    return
+  }
 
-      req.user = user
-      next()
-    } catch (error: any) {
-      if (error.name === "JsonWebTokenError") {
-        res.json({ success: false, message: "unauthorized access!" })
-        return
-      }
-      if (error.name === "TokenExpiredError") {
-        res.json({
-          success: false,
-          message: "sesson expired try sign in!",
-        })
-        return
-      }
+  try {
+    const decode = jwt.verify(
+      token,
+      process.env.JWT_SECRET as string
+    ) as AuthTokenPayload
 
-      res.json({ success: false, message: "Internal server error!" })
+    const user = await User.findById(decode.userId).populate("household")
+    if (!user) {
+      unauthorized(res)
+      return
     }
-  } else {
-    res.json({ success: false, message: "unauthorized access!" })
+
+    const tokenVersion = Number(decode.tokenVersion) || 0
+    const currentVersion = Number(user.tokenVersion) || 0
+    if (tokenVersion !== currentVersion) {
+      unauthorized(res)
+      return
+    }
+
+    req.user = user
+    next()
+  } catch (error: unknown) {
+    const name = error instanceof Error ? error.name : ""
+    if (name === "TokenExpiredError") {
+      unauthorized(res, "sesson expired try sign in!")
+      return
+    }
+    if (name === "JsonWebTokenError") {
+      unauthorized(res)
+      return
+    }
+
+    console.error("Auth error:", error)
+    res.status(500).json({ success: false, message: "Internal server error!" })
   }
 }
