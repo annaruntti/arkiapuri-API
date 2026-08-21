@@ -7,7 +7,7 @@
     "start": "node dist/app.js",
     "dev": "tsx watch --env-file=.env app.ts",
     "dev:once": "tsx --env-file=.env app.ts",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "build:watch": "tsc --watch",
     "deploy": "npm run build && railway up",
     "check-env": "tsx --env-file=.env src/utils/check-env.ts",
