@@ -173,5 +173,40 @@
     "tags": ["empty-ish", "fridge"],
     "notes": "Lähes tyhjä jääkaappi, yksi tuote",
     "expected": ["sinappi"]
+  },
+  {
+    "id": "26",
+    "file": "26.jpg",
+    "tags": ["same-sku", "front-of-pack", "beverages", "single-item"],
+    "notes": "Sama SKU etupuolelta: brändi ja tuotenimi luettavissa (esim. Novelle kivennäisvesi)",
+    "expected": ["kivennäisvesi"]
+  },
+  {
+    "id": "27",
+    "file": "27.jpg",
+    "tags": ["same-sku", "back-of-pack", "beverages", "single-item"],
+    "notes": "Sama pullo kuin 26, selkäpuoli ilman luettavaa nimeä. Odotus: geneerinen juoma, ei uutta tuotetta. Katalogi-eval (--enrich) saa osua 26:n nimeen.",
+    "expected": ["kivennäisvesi"]
+  },
+  {
+    "id": "28",
+    "file": "28.jpg",
+    "tags": ["cupboard", "poor-lighting", "dry-goods"],
+    "notes": "Hämärä kuiva-ainekaappi",
+    "expected": ["riisi", "pasta", "jauho"]
+  },
+  {
+    "id": "29",
+    "file": "29.jpg",
+    "tags": ["fridge", "occlusion", "bottles"],
+    "notes": "Ovihylly, pullot osittain toistensa takana",
+    "expected": ["kivennäisvesi", "mehu"]
+  },
+  {
+    "id": "30",
+    "file": "30.jpg",
+    "tags": ["glare", "single-item", "package"],
+    "notes": "Yksi pakkaus, vahva heijastus etiketissä",
+    "expected": ["voi"]
   }
 ]

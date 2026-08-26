@@ -8,4 +8,8 @@ config/google-creditials.json
 docker-compose.override.yml
 uploads/*
 !uploads/.gitkeep
+scripts/eval/pantry-scan/images/*
+!scripts/eval/pantry-scan/images/.gitkeep
+scripts/eval/pantry-scan/results/*
+!scripts/eval/pantry-scan/results/.gitkeep
 .DS_Store
