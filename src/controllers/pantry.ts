@@ -1,6 +1,6 @@
 import { Response } from "express"
 import type { Model, Types } from "mongoose"
-import type { IFoodItem, IFoodItemNutrition } from "../models/foodItem"
+import type { IFoodItem, IFoodItemNutrition, IFoodItemOpenFoodFacts } from "../models/foodItem"
 import type { IPantryItem } from "../models/pantry"
 import {
   AuthenticatedRequest,
@@ -12,6 +12,7 @@ import {
   getCanonicalPantry,
   mergeDuplicatePantryItems,
   mergeProcessedPantryItems,
+  pantryItemMergeKey,
 } from "../helpers/pantryHelpers"
 import {
   getHouseholdMemberIds,
@@ -20,6 +21,37 @@ import {
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
+
+const applyPantryScanMetadata = (
+  foodItem: IFoodItem,
+  data: {
+    imageUrl?: string
+    barcode?: string
+    openFoodFactsData?: IFoodItemOpenFoodFacts
+    nutrition?: IFoodItemNutrition
+  }
+) => {
+  const imageUrl = data.imageUrl || data.openFoodFactsData?.imageUrl
+  if (imageUrl && !foodItem.image?.url) {
+    foodItem.image = { url: imageUrl }
+  }
+
+  const barcode = data.barcode || data.openFoodFactsData?.barcode
+  if (!imageUrl && !barcode && !data.openFoodFactsData) return
+
+  foodItem.openFoodFactsData = {
+    ...(foodItem.openFoodFactsData || {}),
+    ...(data.openFoodFactsData || {}),
+    ...(barcode ? { barcode } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+    nutrition: {
+      ...(foodItem.openFoodFactsData?.nutrition || {}),
+      ...(data.openFoodFactsData?.nutrition || {}),
+      ...(data.nutrition || {}),
+    },
+    lastUpdated: new Date(),
+  }
+}
 
 interface AddFoodItemToPantryBody {
   name?: string
@@ -31,6 +63,9 @@ interface AddFoodItemToPantryBody {
   nutrition?: IFoodItemNutrition
   expirationDate?: string | Date
   foodId?: string
+  imageUrl?: string
+  barcode?: string
+  openFoodFactsData?: IFoodItemOpenFoodFacts
 }
 
 interface UpdatePantryItemBody {
@@ -136,6 +171,9 @@ export const addFoodItemToPantry = async (
       nutrition,
       expirationDate,
       foodId,
+      imageUrl,
+      barcode,
+      openFoodFactsData,
     } = req.body
 
     if (!name?.trim() && !foodId) {
@@ -159,6 +197,16 @@ export const addFoodItemToPantry = async (
     let foodItem = foodId
       ? await FoodItem.findOne({ _id: foodId, ...ownerQuery })
       : null
+
+    // Ignore a stale catalog id when the submitted name is a different product
+    // (e.g. scan matched "Kivennäisvesi", user renamed to "Novelle kivennäisvesi").
+    if (
+      foodItem &&
+      normalizedName &&
+      pantryItemMergeKey(foodItem.name) !== pantryItemMergeKey(normalizedName)
+    ) {
+      foodItem = null
+    }
 
     if (!foodItem && normalizedName) {
       foodItem = await FoodItem.findOne({
@@ -193,10 +241,11 @@ export const addFoodItemToPantry = async (
           pantry: 0,
         },
       })
+      applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
       await foodItem.save()
     } else {
       if (category) foodItem.category = category
-      if (unit) foodItem.unit = unit
+      if (!foodItem.unit && unit) foodItem.unit = unit
       if (price !== undefined) foodItem.price = price
       if (calories !== undefined) foodItem.calories = calories
       if (nutrition) {
@@ -205,37 +254,44 @@ export const addFoodItemToPantry = async (
           ...nutrition,
         }
       }
+      applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
       await foodItem.save()
     }
 
     const pantry = await getCanonicalPantry(req.user)
+    const rowUnit = normalizeAppUnit(unit || foodItem.unit || "kpl")
+    const displayName = normalizedName || foodItem.name
+    const rowNameKey = pantryItemMergeKey(displayName)
 
-    const existingItem =
-      pantry.items.find(
-        (item) => item.foodId?.toString() === foodItem!._id.toString()
-      ) ||
-      pantry.items.find(
-        (item) =>
-          item.name.trim().toLowerCase() === foodItem!.name.trim().toLowerCase()
+    const existingItem = pantry.items.find((item) => {
+      if (normalizeAppUnit(item.unit) !== rowUnit) return false
+      const itemNameKey = pantryItemMergeKey(item.name)
+      if (itemNameKey && itemNameKey === rowNameKey) return true
+      // Same catalog id only when the pantry row has no name of its own.
+      return (
+        !itemNameKey &&
+        Boolean(foodItem._id) &&
+        item.foodId?.toString() === foodItem._id.toString()
       )
+    })
 
     if (existingItem) {
       existingItem.quantity += pantryQty
-      existingItem.unit = foodItem.unit
+      existingItem.unit = rowUnit
       existingItem.category = foodItem.category
       existingItem.calories = foodItem.calories || 0
       existingItem.price = foodItem.price || 0
       existingItem.foodId = foodItem._id
-      existingItem.name = foodItem.name
+      existingItem.name = displayName
       if (expirationDate) {
         existingItem.expirationDate = new Date(expirationDate)
       }
     } else {
       pantry.items.push({
         foodId: foodItem._id,
-        name: foodItem.name,
+        name: displayName,
         quantity: pantryQty,
-        unit: foodItem.unit,
+        unit: rowUnit,
         category: foodItem.category,
         calories: foodItem.calories || 0,
         price: foodItem.price || 0,

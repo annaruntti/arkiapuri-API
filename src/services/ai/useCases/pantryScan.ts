@@ -1,5 +1,7 @@
 import { completeStructured, pantryScanResponseSchema } from "../llmClient"
 import { normalizePantryDetections } from "../productNormalizer"
+import { enrichPantryCandidates } from "../../foodNameLookup"
+import { pantryItemMergeKey } from "../../../helpers/pantryHelpers"
 import type {
   CatalogFoodMatch,
   ImageInput,
@@ -22,7 +24,9 @@ Säännöt:
 - confidence 0–1.
 - quantityGuess vain jos määrä on arvioitavissa, muuten 1.
 - unit on yksi: kpl, g, kg, ml, dl, l.
-- category on yksi: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.`
+- category on yksi: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.
+- brand vain jos pakkauksessa on selvästi luettava tuotemerkki.
+- barcode vain jos viivakoodi (EAN-8/13) on selvästi luettavissa. Älä arvaa numeroita.`
 
 export const PANTRY_SCAN_USER =
   "Listaa jokainen kuvassa näkyvä elintarvike. Käy kaikki hyllyt ja ovihyllyt. Palauta JSON items-kentässä."
@@ -32,6 +36,7 @@ export const scanPantryImage = async (params: {
   catalog?: CatalogFoodMatch[]
   pantryNames?: string[]
   model?: string
+  enrich?: boolean
 }): Promise<{
   items: NormalizedPantryCandidate[]
   model: string
@@ -49,11 +54,31 @@ export const scanPantryImage = async (params: {
   })
 
   const rawItems = Array.isArray(result.data?.items) ? result.data.items : []
-  const items = normalizePantryDetections(
+  let items = normalizePantryDetections(
     rawItems,
     params.catalog || [],
     params.pantryNames || []
   )
+
+  try {
+    if (params.enrich !== false) {
+      items = await enrichPantryCandidates(items, params.catalog || [])
+    }
+  } catch (error) {
+    console.warn("Pantry scan enrichment failed:", error)
+  }
+
+  const pantryKeys = new Set(
+    (params.pantryNames || [])
+      .map((name) => pantryItemMergeKey(name))
+      .filter(Boolean)
+  )
+  items = items.map((item) => ({
+    ...item,
+    alreadyInPantry:
+      pantryKeys.has(pantryItemMergeKey(item.name)) ||
+      pantryKeys.has(pantryItemMergeKey(item.originalName)),
+  }))
 
   return {
     items,

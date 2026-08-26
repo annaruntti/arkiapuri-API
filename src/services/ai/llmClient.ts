@@ -119,6 +119,8 @@ export const pantryScanResponseSchema = {
           unit: { type: "STRING" },
           category: { type: "STRING" },
           notes: { type: "STRING" },
+          barcode: { type: "STRING" },
+          brand: { type: "STRING" },
         },
         required: ["name", "confidence"],
       },

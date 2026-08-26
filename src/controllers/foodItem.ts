@@ -905,7 +905,7 @@ export const lookupFoodItemsByName = async (
         : { user: req.user._id }
 
     const catalogDocs = await FoodItem.find(catalogQuery)
-      .select("name category unit calories nutrition openFoodFactsData")
+      .select("name category unit calories nutrition image openFoodFactsData")
       .lean()
 
     const results = await lookupFoodsByName(

@@ -121,6 +121,11 @@ export const normalizePantryDetections = (
         ? catalogMatch.category
         : inferFoodCategories(name, detection.category)
 
+    const barcode = String(detection.barcode || "")
+      .replace(/\D/g, "")
+      .trim()
+    const brand = String(detection.brand || "").trim()
+
     const candidate: NormalizedPantryCandidate = {
       name,
       originalName,
@@ -135,6 +140,9 @@ export const normalizePantryDetections = (
       nutrition: pickNutrition(catalogMatch),
       matchSource: catalogMatch ? "catalog" : "inferred",
       matchName: catalogMatch?.name,
+      barcode: barcode || catalogMatch?.barcode,
+      brand: brand || undefined,
+      imageUrl: catalogMatch?.imageUrl,
     }
 
     const existing = grouped.get(key)

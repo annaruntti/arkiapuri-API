@@ -44,6 +44,8 @@ export interface RawPantryDetection {
   unit?: string
   category?: string
   notes?: string
+  barcode?: string
+  brand?: string
 }
 
 export interface PantryScanModelOutput {
@@ -69,6 +71,8 @@ export interface CatalogFoodMatch {
   unit: string
   calories?: number
   nutrition?: FoodNutrition
+  imageUrl?: string
+  barcode?: string
 }
 
 export type FoodMatchSource = "catalog" | "openfoodfacts" | "inferred"
@@ -88,6 +92,8 @@ export interface NormalizedPantryCandidate {
   matchSource?: FoodMatchSource
   matchName?: string
   barcode?: string
+  brand?: string
+  imageUrl?: string
 }
 
 export interface AiEntitlement {

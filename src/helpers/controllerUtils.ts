@@ -38,8 +38,11 @@ export const parseQuantity = (
   options: ParseQuantityOptions = {}
 ): number => {
   const { fallback = 1, min } = options
-  if (value === undefined) return fallback
-  const parsed = typeof value === "number" ? value : parseFloat(String(value))
+  if (value === undefined || value === null || value === "") return fallback
+  const parsed =
+    typeof value === "number"
+      ? value
+      : parseFloat(String(value).trim().replace(/\s/g, "").replace(",", "."))
   if (!Number.isFinite(parsed)) return fallback
   if (min !== undefined && parsed < min) return fallback
   return parsed

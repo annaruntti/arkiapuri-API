@@ -110,7 +110,7 @@ export const scanPantry = async (
 
       const [catalogDocs, pantry] = await Promise.all([
         FoodItem.find(catalogQuery)
-          .select("name category unit calories nutrition openFoodFactsData")
+          .select("name category unit calories nutrition image openFoodFactsData")
           .lean(),
         getCanonicalPantry(req.user),
       ])

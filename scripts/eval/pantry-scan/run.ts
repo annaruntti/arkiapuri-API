@@ -170,7 +170,7 @@ const main = async () => {
 
     for (const model of models) {
       try {
-        const result = await scanPantryImage({ image, model })
+        const result = await scanPantryImage({ image, model, enrich: false })
         const predicted = result.items.map((item) => item.name)
         rows.push({
           id: fixture.id,
