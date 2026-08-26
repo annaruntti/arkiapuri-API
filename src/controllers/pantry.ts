@@ -7,6 +7,8 @@ import {
   getErrorMessage,
   parseQuantity,
   resolveModule,
+  sanitizeBarcode,
+  sanitizeHttpUrl,
 } from "../helpers/controllerUtils"
 import {
   getCanonicalPantry,
@@ -31,22 +33,34 @@ const applyPantryScanMetadata = (
     nutrition?: IFoodItemNutrition
   }
 ) => {
-  const imageUrl = data.imageUrl || data.openFoodFactsData?.imageUrl
+  const imageUrl = sanitizeHttpUrl(
+    data.imageUrl || data.openFoodFactsData?.imageUrl
+  )
   if (imageUrl && !foodItem.image?.url) {
     foodItem.image = { url: imageUrl }
   }
 
-  const barcode = data.barcode || data.openFoodFactsData?.barcode
+  const barcode = sanitizeBarcode(
+    data.barcode || data.openFoodFactsData?.barcode
+  )
   if (!imageUrl && !barcode && !data.openFoodFactsData) return
+
+  const offData = data.openFoodFactsData
+  const {
+    imageUrl: _offImage,
+    barcode: _offBarcode,
+    nutrition: offNutrition,
+    ...offRest
+  } = offData || {}
 
   foodItem.openFoodFactsData = {
     ...(foodItem.openFoodFactsData || {}),
-    ...(data.openFoodFactsData || {}),
+    ...offRest,
     ...(barcode ? { barcode } : {}),
     ...(imageUrl ? { imageUrl } : {}),
     nutrition: {
       ...(foodItem.openFoodFactsData?.nutrition || {}),
-      ...(data.openFoodFactsData?.nutrition || {}),
+      ...(offNutrition || {}),
       ...(data.nutrition || {}),
     },
     lastUpdated: new Date(),

@@ -44,12 +44,44 @@ const NOISE_TOKENS = new Set([
   "cl",
   "x",
   "%",
+  "pullo",
+  "tölkki",
+  "purkki",
+  "pussi",
+  "rasia",
+  "pakkaus",
+  "pkt",
+  "tlk",
+  "prk",
 ])
+
+/** Longest first so "pullollinen" wins over "pullo". */
+const PACKAGING_SUFFIXES = [
+  "pullollinen",
+  "tölkillinen",
+  "rasiallinen",
+  "pakkaus",
+  "pullo",
+  "tölkki",
+  "purkki",
+  "pussi",
+  "rasia",
+]
+
+const stripPackagingSuffix = (token: string): string => {
+  if (NOISE_TOKENS.has(token)) return ""
+  for (const suffix of PACKAGING_SUFFIXES) {
+    if (token.length > suffix.length + 2 && token.endsWith(suffix)) {
+      return token.slice(0, -suffix.length)
+    }
+  }
+  return token
+}
 
 export const tokenizeFoodName = (name: string): string[] =>
   normalizePantryItemName(name)
     .split(/[\s,;/+()[\]{}.\-_|'"%]+/)
-    .map((token) => token.trim())
+    .map((token) => stripPackagingSuffix(token.trim()))
     .filter(
       (token) =>
         token.length > 0 &&
@@ -76,6 +108,16 @@ const editDistance = (a: string, b: string): number => {
   return prev[b.length]
 }
 
+/** Catalog compound head: "vesi" matches "kivennäisvesi", not the reverse. */
+const catalogHasQueryHead = (
+  queryToken: string,
+  catalogToken: string
+): boolean => {
+  if (queryToken.length < 4) return false
+  if (catalogToken.length - queryToken.length < 3) return false
+  return catalogToken.endsWith(queryToken)
+}
+
 const tokensMatch = (queryToken: string, catalogToken: string): boolean => {
   if (queryToken === catalogToken) return true
 
@@ -92,6 +134,8 @@ const tokensMatch = (queryToken: string, catalogToken: string): boolean => {
     return true
   }
 
+  if (catalogHasQueryHead(queryToken, catalogToken)) return true
+
   if (queryToken.length >= 6 && catalogToken.length >= 6) {
     const distance = editDistance(queryToken, catalogToken)
     if (distance > 0 && distance <= 2) return true
@@ -102,11 +146,9 @@ const tokensMatch = (queryToken: string, catalogToken: string): boolean => {
 
 /**
  * Lower is better. 0 = exact merge key.
- * Returns null when the names should not be treated as the same product.
- *
- * Matching is conservative on purpose: character overlap previously merged
- * unrelated foods (ranskankerma → mansikkamehu). Extra catalog tokens such as
- * a brand or package size are allowed; extra query tokens are not.
+ * Extra tokens on either side are allowed when they look like a brand
+ * (Valio rasvaton maito ↔ rasvaton maito). Both sides having leftover
+ * content tokens is not (rasvaton maito ≠ kevyt maito).
  */
 export const scoreCatalogNameMatch = (
   query: string,
@@ -122,16 +164,26 @@ export const scoreCatalogNameMatch = (
   const catalogTokens = tokenizeFoodName(catalogName)
   if (!queryTokens.length || !catalogTokens.length) return null
 
-  const allQueryMatched = queryTokens.every((queryToken) =>
-    catalogTokens.some((catalogToken) => tokensMatch(queryToken, catalogToken))
-  )
-  if (!allQueryMatched) return null
+  const usedCatalog = new Set<number>()
+  const unmatchedQuery: string[] = []
+  for (const queryToken of queryTokens) {
+    const index = catalogTokens.findIndex(
+      (catalogToken, catalogIndex) =>
+        !usedCatalog.has(catalogIndex) &&
+        tokensMatch(queryToken, catalogToken)
+    )
+    if (index === -1) unmatchedQuery.push(queryToken)
+    else usedCatalog.add(index)
+  }
 
-  const extra = catalogTokens.filter(
-    (catalogToken) =>
-      !queryTokens.some((queryToken) => tokensMatch(queryToken, catalogToken))
-  ).length
-  return 1 + extra
+  const unmatchedCatalog = catalogTokens.filter(
+    (_, index) => !usedCatalog.has(index)
+  )
+
+  if (usedCatalog.size === 0) return null
+  if (unmatchedQuery.length > 0 && unmatchedCatalog.length > 0) return null
+
+  return 1 + unmatchedQuery.length + unmatchedCatalog.length
 }
 
 export const findBestCatalogMatch = <T extends { name: string }>(

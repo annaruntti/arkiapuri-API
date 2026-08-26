@@ -28,6 +28,27 @@ export const isCloudinaryConfigured = (): boolean =>
         process.env.CLOUDINARY_API_KEY_SECRET)
   )
 
+export const sanitizeHttpUrl = (value?: string | null): string | undefined => {
+  const url = String(value || "").trim()
+  if (!url || url.length > 2048) return undefined
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined
+    }
+    if (parsed.username || parsed.password) return undefined
+    return url
+  } catch {
+    return undefined
+  }
+}
+
+export const sanitizeBarcode = (value?: string | null): string | undefined => {
+  const digits = String(value || "").replace(/\D/g, "")
+  if (digits.length < 8 || digits.length > 14) return undefined
+  return digits
+}
+
 export interface ParseQuantityOptions {
   fallback?: number
   min?: number

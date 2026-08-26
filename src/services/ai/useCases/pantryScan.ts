@@ -17,15 +17,15 @@ Säännöt:
 - Käy hyllyt järjestelmällisesti: ylähylly → keskihyllyt → alahylly → vihanneslaatikot → ovihyllyt.
 - Listaa myös taka-alalla, osittain peitossa tai pienellä etiketillä olevat tuotteet (matalampi confidence + notes).
 - Sama tuote useassa paketissa: yksi rivi, quantityGuess = näkyvien pakkausten määrä.
-- Käytä suomenkielisiä yleisnimiä (esim. "rasvaton maito", "kananmunat", "tomaatit").
-- Brändi vain jos se on selvästi luettava ja erottaa tuotteen (esim. "Valio voi").
+- Käytä suomenkielisiä yleisnimiä elintarvikkeelle, ei astialle (esim. "kivennäisvesi" ei "vesipullo", "maito" ei "maitotölkki", "rasvaton maito", "kananmunat", "tomaatit").
+- Brändi omaan kenttään aina kun se on luettavissa (esim. Novelle, Valio). Älä jätä brändiä pois, jos logo tai nimi näkyy.
 - Älä keksi tuotteita joita et näe. Älä listaa astioita, hyllyjä, magneetteja tai tyhjiä rasioita.
 - Älä pysähdy ~10 tuotteeseen, jos kuvassa on enemmän.
 - confidence 0–1.
 - quantityGuess vain jos määrä on arvioitavissa, muuten 1.
 - unit on yksi: kpl, g, kg, ml, dl, l.
 - category on yksi: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.
-- brand vain jos pakkauksessa on selvästi luettava tuotemerkki.
+- brand aina kun tuotemerkki on luettavissa; älä arvaa.
 - barcode vain jos viivakoodi (EAN-8/13) on selvästi luettavissa. Älä arvaa numeroita.`
 
 export const PANTRY_SCAN_USER =

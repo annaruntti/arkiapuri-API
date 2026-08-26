@@ -6,7 +6,7 @@ import type {
   FoodNutrition,
   NormalizedPantryCandidate,
 } from "./ai/types"
-import { findBestCatalogMatch } from "./foodNameMatch"
+import { findBestCatalogMatch, scoreCatalogNameMatch, tokenizeFoodName } from "./foodNameMatch"
 import openFoodFactsService from "./openFoodFactsService"
 import { mapOpenFoodFactsToFoodItemFields } from "../utils/openFoodFactsMapper"
 
@@ -218,15 +218,31 @@ const lookupOpenFoodFacts = async (
   query: string,
   brand?: string
 ): Promise<FoodNameLookupResult | null> => {
-  const searches = [query]
-  if (brand) {
-    const branded = `${brand} ${query}`.trim()
-    if (branded !== query) searches.unshift(branded)
+  const searches: string[] = []
+  const addSearch = (value?: string) => {
+    const next = String(value || "").trim()
+    if (
+      !next ||
+      searches.some((item) => item.toLowerCase() === next.toLowerCase())
+    ) {
+      return
+    }
+    searches.push(next)
   }
+
+  if (brand) addSearch(`${brand} ${query}`)
+  addSearch(query)
+  const stripped = tokenizeFoodName(query).join(" ")
+  if (brand) addSearch(`${brand} ${stripped}`)
+  addSearch(stripped)
 
   for (const search of searches) {
     const product = await openFoodFactsService.findConfidentProductByName(search)
-    if (product) return fromOpenFoodFacts(query, product)
+    if (!product) continue
+    const result = fromOpenFoodFacts(query, product)
+    if (namesAreCompatible(query, result.matchName || result.name)) {
+      return result
+    }
   }
   return null
 }
@@ -271,16 +287,32 @@ const normalizeQueries = (
   return unique
 }
 
+const namesAreCompatible = (query: string, catalogName: string): boolean =>
+  scoreCatalogNameMatch(query, catalogName) !== null
+
 const findCatalogItem = (
   query: string,
   barcode: string | undefined,
+  brand: string | undefined,
   catalogByKey: Map<string, CatalogFoodMatch>,
   catalogByBarcode: Map<string, CatalogFoodMatch>,
   catalog: CatalogFoodMatch[]
 ): CatalogFoodMatch | undefined => {
   if (barcode && catalogByBarcode.has(barcode)) {
-    return catalogByBarcode.get(barcode)
+    const byBarcode = catalogByBarcode.get(barcode)
+    if (byBarcode && namesAreCompatible(query, byBarcode.name)) {
+      return byBarcode
+    }
   }
+
+  const branded = brand ? `${brand} ${query}`.trim() : ""
+  if (branded && branded !== query) {
+    const brandedExact = catalogByKey.get(pantryItemMergeKey(branded))
+    if (brandedExact) return brandedExact
+    const brandedFuzzy = findBestCatalogMatch(branded, catalog)
+    if (brandedFuzzy) return brandedFuzzy
+  }
+
   const exact = catalogByKey.get(pantryItemMergeKey(query))
   if (exact) return exact
   return findBestCatalogMatch(query, catalog) || undefined
@@ -312,6 +344,7 @@ export const lookupFoodsByName = async (
     const match = findCatalogItem(
       query.name,
       query.barcode,
+      query.brand,
       catalogByKey,
       catalogByBarcode,
       catalog
@@ -334,7 +367,12 @@ export const lookupFoodsByName = async (
           query.name,
           query.barcode
         )
-        if (byBarcode) return byBarcode
+        if (
+          byBarcode &&
+          namesAreCompatible(query.name, byBarcode.matchName || byBarcode.name)
+        ) {
+          return byBarcode
+        }
       }
       return lookupOpenFoodFacts(query.name, query.brand)
     }
@@ -366,35 +404,28 @@ const applyLookupToCandidate = (
     }
   }
 
-  const fromCatalog = result.source === "catalog"
-  const catalogName = result.matchName || result.name
-  const sameProduct =
-    fromCatalog &&
-    Boolean(
-      pantryItemMergeKey(item.name) &&
-        pantryItemMergeKey(catalogName) &&
-        pantryItemMergeKey(item.name) === pantryItemMergeKey(catalogName)
-    )
+  const adoptedName = result.matchName || result.name
+  const compatible = namesAreCompatible(item.name, adoptedName)
+  if (
+    !compatible ||
+    (result.source !== "catalog" && result.source !== "openfoodfacts")
+  ) {
+    return {
+      ...item,
+      matchSource: item.matchSource || "inferred",
+    }
+  }
 
   return {
     ...item,
-    // Keep the scanned/typed name when the catalog hit is a different product
-    // (e.g. "kivennäisvesi" must not become "Novelle kivennäisvesi").
-    name: sameProduct && result.name ? result.name : item.name,
-    foodId: sameProduct ? result.foodId || item.foodId : null,
+    name: adoptedName || item.name,
+    foodId:
+      result.source === "catalog" ? result.foodId || item.foodId : item.foodId,
     category: result.category?.length ? result.category : item.category,
     calories: result.calories ?? item.calories,
     nutrition: result.nutrition ?? item.nutrition,
-    matchSource: sameProduct
-      ? result.source
-      : fromCatalog
-        ? item.matchSource || "inferred"
-        : result.source,
-    matchName: sameProduct
-      ? catalogName
-      : result.source === "openfoodfacts"
-        ? result.matchName || item.matchName
-        : item.matchName,
+    matchSource: result.source,
+    matchName: adoptedName,
     barcode: result.barcode || item.barcode,
     imageUrl: result.imageUrl || item.imageUrl,
   }

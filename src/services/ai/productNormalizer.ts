@@ -2,6 +2,7 @@ import {
   pantryItemMergeKey,
   normalizePantryItemName,
 } from "../../helpers/pantryHelpers"
+import { findBestCatalogMatch } from "../foodNameMatch"
 import { ALLOWED_PANTRY_UNITS, FOOD_CATEGORY_NAMES } from "./config"
 import type {
   CatalogFoodMatch,
@@ -111,7 +112,21 @@ export const normalizePantryDetections = (
     const key = pantryItemMergeKey(originalName)
     if (!key) continue
 
-    const catalogMatch = catalogByKey.get(key)
+    const barcode = String(detection.barcode || "")
+      .replace(/\D/g, "")
+      .trim()
+    const brand = String(detection.brand || "").trim()
+    const brandedName = brand ? `${brand} ${originalName}` : originalName
+
+    const catalogMatch =
+      catalogByKey.get(key) ||
+      (brand
+        ? catalogByKey.get(pantryItemMergeKey(brandedName))
+        : undefined) ||
+      (brand ? findBestCatalogMatch(brandedName, catalog) : null) ||
+      findBestCatalogMatch(originalName, catalog) ||
+      undefined
+
     const name = catalogMatch?.name || titleCaseFinnish(originalName)
     const confidence = clampConfidence(detection.confidence)
     const unit = resolvePantryUnit(detection.unit || catalogMatch?.unit)
@@ -121,10 +136,7 @@ export const normalizePantryDetections = (
         ? catalogMatch.category
         : inferFoodCategories(name, detection.category)
 
-    const barcode = String(detection.barcode || "")
-      .replace(/\D/g, "")
-      .trim()
-    const brand = String(detection.brand || "").trim()
+    const groupKey = pantryItemMergeKey(catalogMatch?.name || originalName)
 
     const candidate: NormalizedPantryCandidate = {
       name,
@@ -134,7 +146,12 @@ export const normalizePantryDetections = (
       unit,
       category,
       foodId: catalogMatch?._id || null,
-      alreadyInPantry: pantryKeys.has(key) || Boolean(catalogMatch && pantryKeys.has(pantryItemMergeKey(catalogMatch.name))),
+      alreadyInPantry:
+        pantryKeys.has(groupKey) ||
+        pantryKeys.has(key) ||
+        Boolean(
+          catalogMatch && pantryKeys.has(pantryItemMergeKey(catalogMatch.name))
+        ),
       notes: detection.notes?.trim() || undefined,
       calories: pickCalories(catalogMatch),
       nutrition: pickNutrition(catalogMatch),
@@ -145,9 +162,9 @@ export const normalizePantryDetections = (
       imageUrl: catalogMatch?.imageUrl,
     }
 
-    const existing = grouped.get(key)
+    const existing = grouped.get(groupKey)
     if (!existing || candidate.confidence > existing.confidence) {
-      grouped.set(key, candidate)
+      grouped.set(groupKey, candidate)
     }
   }
 
