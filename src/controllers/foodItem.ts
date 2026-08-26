@@ -1,6 +1,6 @@
 import { Response } from "express"
 import type { FilterQuery, Model } from "mongoose"
-import cloudinary from "../helper/imageUpload"
+import cloudinary from "../helpers/imageUpload"
 import fs from "fs"
 import type { IFoodItem, FoodLocation } from "../models/foodItem"
 import type { IPantry, IPantryItem } from "../models/pantry"

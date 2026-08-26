@@ -1,6 +1,6 @@
 import { Router, Request } from "express"
 import multer from "multer"
-import { isAuth } from "../middlewares/auth"
+import { isAuth } from "../middleware/auth"
 import { authRateLimiter } from "../middleware/security"
 import {
   createUser,
@@ -16,7 +16,7 @@ import {
   validateUserSignUp,
   userVlidation,
   validateUserSignIn,
-} from "../middlewares/validation/user"
+} from "../middleware/validation/user"
 
 const router = Router()
 

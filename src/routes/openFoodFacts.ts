@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { isAuth } from "../middlewares/auth"
+import { isAuth } from "../middleware/auth"
 import { openFoodFactsRateLimiter } from "../middleware/security"
 import * as openFoodFactsController from "../controllers/openFoodFacts"
 

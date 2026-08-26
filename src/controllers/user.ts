@@ -1,7 +1,7 @@
 import { Request, Response } from "express"
 import type { Model } from "mongoose"
 import fs from "fs"
-import cloudinary from "../helper/imageUpload"
+import cloudinary from "../helpers/imageUpload"
 import type { IUserModel } from "../models/user"
 import type { IHousehold } from "../models/household"
 import type { IInvitation } from "../models/invitation"

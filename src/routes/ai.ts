@@ -1,6 +1,6 @@
 import { Router } from "express"
-import { isAuth } from "../middlewares/auth"
-import { requireAiAccess } from "../middlewares/requireAiAccess"
+import { isAuth } from "../middleware/auth"
+import { requireAiAccess } from "../middleware/requireAiAccess"
 import { getAiStatus, scanPantry } from "../controllers/aiPantryScan"
 import { aiRateLimiter } from "../middleware/security"
 

@@ -1,6 +1,6 @@
 import { Router } from "express"
-import { isAuth } from "../middlewares/auth"
-import { foodItemUpload } from "../middlewares/uploadImage"
+import { isAuth } from "../middleware/auth"
+import { foodItemUpload } from "../middleware/uploadImage"
 import {
   getFoodItems,
   createFoodItem,
