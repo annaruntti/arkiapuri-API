@@ -1,7 +1,7 @@
 import { Response } from "express"
 import type { Model } from "mongoose"
 import fs from "fs"
-import cloudinary from "../helper/imageUpload"
+import cloudinary from "../helpers/imageUpload"
 import type { IFoodItem } from "../models/foodItem"
 import type { IMeal, MealRole } from "../models/meal"
 import type { IUserModel } from "../models/user"
@@ -70,25 +70,51 @@ const mealAccessQuery = async (
   $and: [{ _id: mealId }, await getDataQuery(user, "user")],
 })
 
-const toUtcDayKey = (value?: string | Date | null): string | null => {
-  if (!value) return null
+const toCalendarDayKey = (value?: string | Date | null): string | null => {
+  if (value == null || value === "") return null
+  const raw = typeof value === "string" ? value.trim() : ""
+  const dayOnly = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (dayOnly && (raw.length === 10 || /T00:00:00/.test(raw))) {
+    return dayOnly[1]
+  }
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return date.toISOString().slice(0, 10)
 }
 
-const hasEatingDateBeforeCooking = (
-  eatingDates?: Array<string | Date>,
+const toUtcMidnight = (dayKey: string): string => `${dayKey}T00:00:00.000Z`
+
+const normalizeMealDate = (value?: string | Date | null): string | null => {
+  const day = toCalendarDayKey(value)
+  return day ? toUtcMidnight(day) : null
+}
+
+const normalizeMealDates = (values?: Array<string | Date> | null): string[] => {
+  if (!Array.isArray(values)) return []
+  return [
+    ...new Set(
+      values
+        .map((value) => normalizeMealDate(value))
+        .filter((value): value is string => Boolean(value))
+    ),
+  ]
+}
+
+const clampEatingDatesToCooking = (
+  eatingDates: string[],
   cookingDate?: string | Date | null
-): boolean => {
-  const cookingKey = toUtcDayKey(cookingDate)
-  if (!cookingKey || !Array.isArray(eatingDates) || eatingDates.length === 0) {
-    return false
-  }
-  return eatingDates.some((date) => {
-    const key = toUtcDayKey(date)
-    return key !== null && key < cookingKey
-  })
+): string[] => {
+  const cookingKey = toCalendarDayKey(cookingDate)
+  if (!cookingKey) return eatingDates
+  return [
+    ...new Set(
+      eatingDates.map((date) => {
+        const day = toCalendarDayKey(date)
+        if (!day) return date
+        return day < cookingKey ? toUtcMidnight(cookingKey) : date
+      })
+    ),
+  ]
 }
 
 const normalizeServings = (value: unknown): number => {
@@ -123,30 +149,22 @@ export const createMeal = async (
       })
     }
 
-    if (plannedCookingDate && !Date.parse(plannedCookingDate)) {
+    if (plannedCookingDate && !normalizeMealDate(plannedCookingDate)) {
       return res.status(400).json({
         success: false,
         message: "Invalid plannedCookingDate format",
       })
     }
 
-    let validatedEatingDates: string[] = []
-    if (Array.isArray(plannedEatingDates) && plannedEatingDates.length > 0) {
-      validatedEatingDates = plannedEatingDates.filter(
-        (date) => date && Date.parse(date)
-      )
+    const cookingDate = normalizeMealDate(plannedCookingDate)
+    let validatedEatingDates = normalizeMealDates(plannedEatingDates)
+    if (validatedEatingDates.length === 0 && cookingDate) {
+      validatedEatingDates = [cookingDate]
     }
-
-    if (validatedEatingDates.length === 0 && plannedCookingDate) {
-      validatedEatingDates = [plannedCookingDate]
-    }
-
-    if (hasEatingDateBeforeCooking(validatedEatingDates, plannedCookingDate)) {
-      return res.status(400).json({
-        success: false,
-        message: "Eating dates cannot be before plannedCookingDate",
-      })
-    }
+    validatedEatingDates = clampEatingDatesToCooking(
+      validatedEatingDates,
+      cookingDate
+    )
 
     const ingredientRows = normalizeMealIngredientInputs(foodItems)
 
@@ -197,7 +215,7 @@ export const createMeal = async (
       foodItems: ingredientRows,
       defaultRoles,
       mealCategory: normalizeMealCategories(mealCategory),
-      plannedCookingDate,
+      plannedCookingDate: cookingDate,
       plannedEatingDates: validatedEatingDates,
       servings: normalizeServings(servings),
       user: ownership.userId,
@@ -253,47 +271,29 @@ export const updateMeal = async (
       })
     }
 
-    if (updateData.plannedEatingDates !== undefined) {
-      if (Array.isArray(updateData.plannedEatingDates)) {
-        const validDates = updateData.plannedEatingDates
-          .filter((date) => date && Date.parse(date))
-          .map((date) => {
-            const normalizedDate = new Date(date)
-            normalizedDate.setUTCHours(0, 0, 0, 0)
-            return normalizedDate.toISOString()
-          })
-
-        updateData.plannedEatingDates = [...new Set(validDates)]
-
-        if (updateData.plannedEatingDates.length === 0) {
-          const cookingDate =
-            updateData.plannedCookingDate || meal.plannedCookingDate
-          if (cookingDate) {
-            updateData.plannedEatingDates = [String(cookingDate)]
-          }
-        }
-      }
+    if (updateData.plannedCookingDate !== undefined) {
+      updateData.plannedCookingDate =
+        normalizeMealDate(updateData.plannedCookingDate) ?? undefined
     }
 
-    if (
-      updateData.plannedEatingDates !== undefined ||
-      updateData.plannedCookingDate !== undefined
-    ) {
-      const nextCookingDate =
+    if (updateData.plannedEatingDates !== undefined) {
+      let eatingDates = normalizeMealDates(updateData.plannedEatingDates)
+      const cookingDate =
         updateData.plannedCookingDate !== undefined
           ? updateData.plannedCookingDate
           : meal.plannedCookingDate
-      const nextEatingDates =
-        updateData.plannedEatingDates !== undefined
-          ? updateData.plannedEatingDates
-          : meal.plannedEatingDates
-
-      if (hasEatingDateBeforeCooking(nextEatingDates, nextCookingDate)) {
-        return res.status(400).json({
-          success: false,
-          message: "Eating dates cannot be before plannedCookingDate",
-        })
+      if (eatingDates.length === 0 && cookingDate) {
+        eatingDates = normalizeMealDates([cookingDate])
       }
+      updateData.plannedEatingDates = clampEatingDatesToCooking(
+        eatingDates,
+        cookingDate
+      )
+    } else if (updateData.plannedCookingDate !== undefined) {
+      updateData.plannedEatingDates = clampEatingDatesToCooking(
+        normalizeMealDates(meal.plannedEatingDates),
+        updateData.plannedCookingDate
+      )
     }
 
     if (updateData.servings !== undefined) {
