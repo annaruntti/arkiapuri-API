@@ -237,7 +237,7 @@ Successful scan returns `items` (candidates) and `usage` (`creditsCharged`, `rem
 
 Reserved for later (not implemented yet): `recipe_suggest` (1 credit) and `dish_from_photo` (3 credits).
 
-Local eval harness: `npm run eval:pantry-scan` (see `scripts/eval/pantry-scan/README.md`).
+To improve how accurately pantry scan names products in the app, run `npm run eval:pantry-scan` from this repository. How to run it, how scores are defined, and how to compare changes are in `scripts/eval/pantry-scan/README.md`.
 
 ## Security
 
