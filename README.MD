@@ -214,17 +214,18 @@ For complete API documentation, see the Swagger docs at `/api-docs`
 
 ### Gemini AI (pantry scanner)
 
-The pantry (pentteri) can be filled from a photo. The app sends a compressed JPEG to Gemini (`gemini-3.5-flash-lite` by default). The model returns structured product candidates (name, quantity, unit, confidence). The API does **not** write the pantry automatically: the user reviews and confirms items in the app.
+The pantry (pentteri) can be filled from a photo, and a saved meal can be drafted from a dish photo. The app sends a compressed JPEG to Gemini (`gemini-3.5-flash-lite` by default). The model returns structured candidates. The API does **not** write pantry items or meals automatically: the user reviews and confirms in the app.
 
-After names are set, the API looks up extra fields from the household catalog and Open Food Facts (categories and macros per 100 g). Scan uses a shared monthly credit pool on the household (or the solo user). Default limit is 40 credits; one pantry scan costs 2.
+After names are set, the API looks up extra fields from the household catalog and Open Food Facts (categories and macros per 100 g). Scan uses a shared monthly credit pool on the household (or the solo user). Default limit is 40 credits; one pantry scan costs 2 and one dish-from-photo draft costs 3.
 
 | Method | Path | Auth | Credits | Description |
 | --- | --- | --- | --- | --- |
 | GET | `/ai/entitlement` | JWT | — | Plan, remaining credits, and feature costs |
 | POST | `/ai/pantry-scan` | JWT + premium | 2 | Detect products from a pantry photo |
+| POST | `/ai/dish-from-photo` | JWT + premium | 3 | Draft a meal (name, recipe, ingredients) from a dish photo |
 | POST | `/food-items/lookup-by-name` | JWT | — | Prefill category and nutrition by product name |
 
-`POST /ai/pantry-scan` body:
+`POST /ai/pantry-scan` and `POST /ai/dish-from-photo` body:
 
 ```json
 {
@@ -233,9 +234,11 @@ After names are set, the API looks up extra fields from the household catalog an
 }
 ```
 
-Successful scan returns `items` (candidates) and `usage` (`creditsCharged`, `remainingCredits`, `creditLimit`). The client then `POST /pantry/items` for the products the user selected.
+Successful pantry scan returns `items` (candidates) and `usage` (`creditsCharged`, `remainingCredits`, `creditLimit`). The client then `POST /pantry/items` for the products the user selected.
 
-Reserved for later (not implemented yet): `recipe_suggest` (1 credit) and `dish_from_photo` (3 credits).
+Successful dish-from-photo returns `meal` (name, recipe, servings, cooking time, difficulty, roles, categories), `ingredients` (candidates with catalog/OFF matches) and `usage`. The client then creates the meal with `POST /meals`.
+
+Reserved for later (not implemented yet): `recipe_suggest` (1 credit).
 
 To improve how accurately pantry scan names products in the app, run `npm run eval:pantry-scan` from this repository. How to run it, how scores are defined, and how to compare changes are in `scripts/eval/pantry-scan/README.md`.
 
@@ -329,7 +332,7 @@ Ensure these environment variables are set in Railway project:
 - `EMAIL_FROM_ADDRESS`: Sender email address (e.g., "noreply@arkiapuri.fi")
 - `FRONTEND_URL`: Your mobile app deep link or web URL (e.g., "arkiapuri://app")
 - `GOOGLE_CALLBACK_URL`: Set to "https://your-railway-url/auth/google/callback"
-- `GEMINI_API_KEY`: Google AI Studio key for pantry scan (optional; scan is disabled without it)
+- `GEMINI_API_KEY`: Google AI Studio key for pantry scan and dish-from-photo (optional; AI routes are disabled without it)
 - `AI_MODEL`: Gemini model id (default `gemini-3.5-flash-lite`)
 - `AI_MONTHLY_CREDIT_LIMIT`: Shared household/user monthly AI credits (default `40`)
 - `AI_MONTHLY_BUDGET_USD`: Global monthly spend cap (default `20`)

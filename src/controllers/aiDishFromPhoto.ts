@@ -6,9 +6,8 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
+import { parseAiImageBody } from "../helpers/aiImageRequest"
 import { getHouseholdMemberIds, resolveHouseholdId } from "../helpers/householdHelpers"
-import { getCanonicalPantry } from "../helpers/pantryHelpers"
-import { getAiEntitlement } from "../services/ai/entitlement"
 import {
   BudgetExceededError,
   consumeAiCredits,
@@ -16,31 +15,14 @@ import {
   refundAiCredits,
 } from "../services/ai/aiUsage"
 import { FEATURE_CREDIT_COST, FEATURE_ESTIMATED_USD } from "../services/ai/config"
-import { scanPantryImage } from "../services/ai/useCases/pantryScan"
+import { scanDishFromPhoto } from "../services/ai/useCases/dishFromPhoto"
 import { AiNotConfiguredError, AiResponseError } from "../services/ai/llmClient"
 import type { CatalogFoodMatch } from "../services/ai/types"
 import { toCatalogFoodMatch } from "../services/foodNameLookup"
-import { parseAiImageBody } from "../helpers/aiImageRequest"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
-export const getAiStatus = async (
-  req: AuthenticatedRequest,
-  res: Response
-) => {
-  try {
-    const entitlement = await getAiEntitlement(req.user)
-    res.json({
-      success: true,
-      entitlement,
-      featureCosts: FEATURE_CREDIT_COST,
-    })
-  } catch (error: unknown) {
-    res.status(500).json({ success: false, error: getErrorMessage(error) })
-  }
-}
-
-export const scanPantry = async (
+export const scanDish = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
@@ -61,7 +43,7 @@ export const scanPantry = async (
     })
   }
 
-  const feature = "pantry_scan" as const
+  const feature = "dish_from_photo" as const
   let consumedCost = FEATURE_ESTIMATED_USD[feature]
 
   try {
@@ -81,26 +63,21 @@ export const scanPantry = async (
           ? { user: { $in: memberIds } }
           : { user: req.user._id }
 
-      const [catalogDocs, pantry] = await Promise.all([
-        FoodItem.find(catalogQuery)
-          .select("name category unit calories nutrition image openFoodFactsData")
-          .lean(),
-        getCanonicalPantry(req.user),
-      ])
-
+      const catalogDocs = await FoodItem.find(catalogQuery)
+        .select("name category unit calories nutrition image openFoodFactsData")
+        .lean()
       const catalog: CatalogFoodMatch[] = catalogDocs.map(toCatalogFoodMatch)
-      const pantryNames = pantry.items.map((item) => item.name)
 
-      const result = await scanPantryImage({
+      const result = await scanDishFromPhoto({
         image: parsed.image,
         catalog,
-        pantryNames,
       })
       consumedCost = result.estimatedCostUsd || consumedCost
 
       res.json({
         success: true,
-        items: result.items,
+        meal: result.meal,
+        ingredients: result.ingredients,
         model: result.model,
         usage: {
           remainingCredits: reserved.remainingCredits,
@@ -147,7 +124,7 @@ export const scanPantry = async (
         message: error.message,
       })
     }
-    console.error("Pantry scan error:", error)
+    console.error("Dish-from-photo error:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }

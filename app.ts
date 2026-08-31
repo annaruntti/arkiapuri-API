@@ -123,8 +123,9 @@ app.use(
   })
 )
 
-// Keep the large JSON body limit on pantry-scan only; other routes stay small.
+// Keep the large JSON body limit on AI image routes only; other routes stay small.
 app.use("/ai/pantry-scan", express.json({ limit: "8mb" }))
+app.use("/ai/dish-from-photo", express.json({ limit: "8mb" }))
 app.use(express.json({ limit: "200kb" }))
 
 // Creates uploads directory if it doesn't exist
@@ -163,7 +164,9 @@ app.use(pantryRouter)
 app.use("/api/openfoodfacts", openFoodFactsRouter)
 app.use(householdRouter)
 app.use(aiRouter)
-console.log("AI routes enabled: GET /ai/entitlement, POST /ai/pantry-scan")
+console.log(
+  "AI routes enabled: GET /ai/entitlement, POST /ai/pantry-scan, POST /ai/dish-from-photo"
+)
 
 if (process.env.NODE_ENV !== "production") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec))

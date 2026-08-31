@@ -16,7 +16,7 @@ declare global {
 
 const DENY_MESSAGES: Record<string, string> = {
   upgrade_required:
-    "AI-ominaisuudet kuuluvat maksulliseen sopimukseen. Päivitä tilaus käyttääksesi pentteriskannausta.",
+    "AI-ominaisuudet kuuluvat maksulliseen sopimukseen. Päivitä tilaus käyttääksesi niitä.",
   quota_exceeded:
     "Tämän kuun AI-kiintiö on käytetty. Kiintiö nollautuu seuraavan laskutuskauden alussa.",
   budget_exceeded:

@@ -86,7 +86,7 @@ export const completeStructured = async <T>(
       )
     }
     throw new AiResponseError(
-      "Tuotteiden tunnistus epäonnistui. Yritä uudelleen toisella kuvalla."
+      "Tunnistus epäonnistui. Yritä uudelleen toisella kuvalla."
     )
   }
 
@@ -127,4 +127,41 @@ export const pantryScanResponseSchema = {
     },
   },
   required: ["items"],
+}
+
+/** Gemini schema for dish-from-photo structured output. */
+export const dishFromPhotoResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    name: { type: "STRING" },
+    recipe: { type: "STRING" },
+    servings: { type: "NUMBER" },
+    cookingTime: { type: "NUMBER" },
+    difficultyLevel: { type: "STRING" },
+    defaultRoles: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
+    mealCategory: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
+    ingredients: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          confidence: { type: "NUMBER" },
+          quantityGuess: { type: "NUMBER" },
+          unit: { type: "STRING" },
+          category: { type: "STRING" },
+          notes: { type: "STRING" },
+          visibleInPhoto: { type: "BOOLEAN" },
+        },
+        required: ["name", "confidence"],
+      },
+    },
+  },
+  required: ["name", "recipe", "ingredients"],
 }

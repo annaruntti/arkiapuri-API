@@ -46,10 +46,38 @@ export interface RawPantryDetection {
   notes?: string
   barcode?: string
   brand?: string
+  visibleInPhoto?: boolean
 }
 
 export interface PantryScanModelOutput {
   items: RawPantryDetection[]
+}
+
+export type MealDifficulty = "easy" | "medium" | "hard"
+
+export interface RawDishIngredient extends RawPantryDetection {
+  visibleInPhoto?: boolean
+}
+
+export interface DishFromPhotoModelOutput {
+  name?: string
+  recipe?: string
+  servings?: number
+  cookingTime?: number
+  difficultyLevel?: string
+  defaultRoles?: string[]
+  mealCategory?: string[]
+  ingredients?: RawDishIngredient[]
+}
+
+export interface DishMealDraft {
+  name: string
+  recipe: string
+  servings: number
+  cookingTime: number
+  difficultyLevel: MealDifficulty
+  defaultRoles: string[]
+  mealCategory: string[]
 }
 
 export interface FoodNutrition {
@@ -94,6 +122,11 @@ export interface NormalizedPantryCandidate {
   barcode?: string
   brand?: string
   imageUrl?: string
+  visibleInPhoto?: boolean
+}
+
+export type NormalizedDishIngredient = NormalizedPantryCandidate & {
+  visibleInPhoto: boolean
 }
 
 export interface AiEntitlement {

@@ -3,10 +3,12 @@ import {
   normalizePantryItemName,
 } from "../../helpers/pantryHelpers"
 import { findBestCatalogMatch } from "../foodNameMatch"
-import { ALLOWED_PANTRY_UNITS, FOOD_CATEGORY_NAMES } from "./config"
+import { ALLOWED_PANTRY_UNITS, ALLOWED_MEAL_UNITS, FOOD_CATEGORY_NAMES } from "./config"
 import type {
   CatalogFoodMatch,
+  NormalizedDishIngredient,
   NormalizedPantryCandidate,
+  RawDishIngredient,
   RawPantryDetection,
 } from "./types"
 
@@ -31,14 +33,21 @@ const titleCaseFinnish = (name: string): string => {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
 }
 
-export const resolvePantryUnit = (unit?: string): string => {
+export const resolvePantryUnit = (unit?: string): string =>
+  resolveAllowedUnit(unit, ALLOWED_PANTRY_UNITS)
+
+export const resolveMealUnit = (unit?: string): string =>
+  resolveAllowedUnit(unit, ALLOWED_MEAL_UNITS)
+
+const resolveAllowedUnit = (
+  unit: string | undefined,
+  allowed: readonly string[]
+): string => {
   const normalized = String(unit || "kpl").trim().toLowerCase()
   if (normalized === "pcs" || normalized === "piece" || normalized === "pieces") {
     return "kpl"
   }
-  return (ALLOWED_PANTRY_UNITS as readonly string[]).includes(normalized)
-    ? normalized
-    : "kpl"
+  return allowed.includes(normalized) ? normalized : "kpl"
 }
 
 export const inferFoodCategories = (
@@ -91,7 +100,8 @@ const pickNutrition = (item?: CatalogFoodMatch) => {
 export const normalizePantryDetections = (
   detections: RawPantryDetection[],
   catalog: CatalogFoodMatch[] = [],
-  pantryNames: string[] = []
+  pantryNames: string[] = [],
+  resolveUnit: (unit?: string) => string = resolvePantryUnit
 ): NormalizedPantryCandidate[] => {
   const catalogByKey = new Map<string, CatalogFoodMatch>()
   for (const item of catalog) {
@@ -129,8 +139,9 @@ export const normalizePantryDetections = (
 
     const name = catalogMatch?.name || titleCaseFinnish(originalName)
     const confidence = clampConfidence(detection.confidence)
-    const unit = resolvePantryUnit(detection.unit || catalogMatch?.unit)
+    const unit = resolveUnit(detection.unit || catalogMatch?.unit)
     const quantity = clampQuantity(detection.quantityGuess)
+    const visibleInPhoto = Boolean(detection.visibleInPhoto)
     const category =
       catalogMatch?.category?.length
         ? catalogMatch.category
@@ -160,13 +171,31 @@ export const normalizePantryDetections = (
       barcode: barcode || catalogMatch?.barcode,
       brand: brand || undefined,
       imageUrl: catalogMatch?.imageUrl,
+      visibleInPhoto,
     }
 
     const existing = grouped.get(groupKey)
     if (!existing || candidate.confidence > existing.confidence) {
-      grouped.set(groupKey, candidate)
+      grouped.set(groupKey, {
+        ...candidate,
+        visibleInPhoto: visibleInPhoto || Boolean(existing?.visibleInPhoto),
+      })
+    } else if (visibleInPhoto) {
+      existing.visibleInPhoto = true
     }
   }
 
   return [...grouped.values()].sort((a, b) => b.confidence - a.confidence)
 }
+
+export const normalizeDishDetections = (
+  detections: RawDishIngredient[],
+  catalog: CatalogFoodMatch[] = []
+): NormalizedDishIngredient[] =>
+  normalizePantryDetections(detections, catalog, [], resolveMealUnit).map(
+    (item) => ({
+      ...item,
+      alreadyInPantry: false,
+      visibleInPhoto: Boolean(item.visibleInPhoto),
+    })
+  )

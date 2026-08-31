@@ -42,6 +42,24 @@ export const currentUsagePeriod = (date = new Date()): string =>
 
 export const ALLOWED_PANTRY_UNITS = ["kpl", "g", "kg", "l", "dl", "ml"] as const
 
+export const ALLOWED_MEAL_UNITS = [
+  ...ALLOWED_PANTRY_UNITS,
+  "tl",
+  "rkl",
+] as const
+
+export const VALID_MEAL_ROLES = [
+  "breakfast",
+  "lunch",
+  "snack",
+  "dinner",
+  "supper",
+  "dessert",
+  "other",
+] as const
+
+export const VALID_MEAL_DIFFICULTIES = ["easy", "medium", "hard"] as const
+
 export const FOOD_CATEGORY_NAMES = [
   "Kasviproteiinit",
   "Kala",
