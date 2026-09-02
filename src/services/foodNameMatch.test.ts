@@ -22,6 +22,17 @@ describe("scoreCatalogNameMatch", () => {
     assert.equal(scoreCatalogNameMatch("kana", "kaneli"), null)
   })
 
+  it("does not match paprika to paprikajauhe", () => {
+    assert.equal(scoreCatalogNameMatch("paprika", "paprikajauhe"), null)
+    assert.equal(scoreCatalogNameMatch("paprikoita", "paprikajauhe"), null)
+    assert.equal(scoreCatalogNameMatch("paprikajauhe", "paprika"), null)
+  })
+
+  it("matches paprika inflections to paprika", () => {
+    assert.equal(typeof scoreCatalogNameMatch("paprikat", "paprika"), "number")
+    assert.equal(typeof scoreCatalogNameMatch("paprikaa", "paprika"), "number")
+  })
+
   it("does not match ranskankerma to mansikkamehu", () => {
     assert.equal(scoreCatalogNameMatch("ranskankerma", "mansikkamehu"), null)
   })

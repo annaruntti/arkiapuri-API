@@ -3,7 +3,7 @@ import type { FilterQuery, Model } from "mongoose"
 import cloudinary from "../helpers/imageUpload"
 import fs from "fs"
 import type { IFoodItem, FoodLocation } from "../models/foodItem"
-import type { IPantry, IPantryItem } from "../models/pantry"
+import type { IPantryItem } from "../models/pantry"
 import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
 import type { IUser, IUserModel } from "../models/user"
 import {
@@ -18,11 +18,12 @@ import {
 } from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import { lookupFoodsByName, toCatalogFoodMatch } from "../services/foodNameLookup"
+import { scoreCatalogNameMatch } from "../services/foodNameMatch"
 import type { IMeal } from "../models/meal"
+import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 const User = resolveModule<IUserModel>(require("../models/user"))
-const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
 )
@@ -88,6 +89,7 @@ interface MoveItemBody {
 
 interface CheckItemAvailabilityBody {
   name?: string
+  foodId?: string
 }
 
 interface CloudinaryUploadResult {
@@ -104,8 +106,10 @@ interface FoodItemApiResponse {
   isExisting?: boolean
   inPantry?: boolean
   pantryQuantity?: number
+  pantryUnit?: string
   inShoppingList?: boolean
   shoppingListQuantity?: number
+  shoppingListUnit?: string
   shoppingListId?: IShoppingList["_id"] | null
   hasMatchingFoodItem?: boolean
   matchingFoodItems?: Array<{
@@ -200,13 +204,23 @@ const CATALOG_UPDATE_KEYS = [
   "openFoodFactsData",
 ] as const
 
-const getPopulatedFoodName = (
-  foodId: PopulatedFoodRef | undefined | null
-): string | null => {
+const getPopulatedFoodName = (foodId: unknown): string | null => {
   if (!foodId || typeof foodId !== "object" || !("name" in foodId)) {
     return null
   }
-  return foodId.name
+  const name = (foodId as { name?: unknown }).name
+  return typeof name === "string" ? name : null
+}
+
+const availabilityNamesMatch = (query: string, candidate: string): boolean =>
+  Boolean(query && candidate && scoreCatalogNameMatch(query, candidate) !== null)
+
+const resolveLocatedFoodId = (foodId: unknown): string => {
+  if (!foodId) return ""
+  if (typeof foodId === "object" && foodId !== null && "_id" in foodId) {
+    return String((foodId as { _id: unknown })._id)
+  }
+  return String(foodId)
 }
 
 export const createFoodItem = async (
@@ -932,81 +946,74 @@ export const checkItemAvailability = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const { name } = req.body
+    const { name, foodId } = req.body
+    const searchName = name?.trim() || ""
 
-    if (!name) {
+    if (!searchName && !foodId) {
       return res.status(400).json({
         success: false,
         message: "Food item name is required",
       })
     }
 
-    const normalizeName = (str: string): string =>
-      str
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, " ")
-        .replace(/[^\w\s]/g, "")
+    const householdId = resolveHouseholdId(req.user)
+    const memberIds = householdId
+      ? await getHouseholdMemberIds(householdId)
+      : []
+    const catalogQuery =
+      memberIds.length > 0
+        ? { user: { $in: memberIds } }
+        : { user: req.user._id }
 
-    const normalizedSearchName = normalizeName(name)
-
-    const allFoodItems: IFoodItem[] = await FoodItem.find({
-      user: req.user._id,
-    })
+    const allFoodItems: IFoodItem[] = await FoodItem.find(catalogQuery)
     const matchingItems: IFoodItem[] = []
+    const matchingIds = new Set<string>()
+
+    if (foodId) matchingIds.add(String(foodId))
 
     for (const item of allFoodItems) {
-      const normalizedItemName = normalizeName(item.name)
-      if (
-        normalizedItemName === normalizedSearchName ||
-        normalizedItemName.includes(normalizedSearchName) ||
-        normalizedSearchName.includes(normalizedItemName)
-      ) {
+      const itemId = String(item._id)
+      const isIdMatch = matchingIds.has(itemId)
+      const isNameMatch = Boolean(
+        searchName && availabilityNamesMatch(searchName, item.name)
+      )
+      if (isIdMatch || isNameMatch) {
         matchingItems.push(item)
+        matchingIds.add(itemId)
       }
     }
 
-    const matchingIds = new Set(
-      matchingItems.map((item) => String(item._id))
-    )
-
-    const pantry = await Pantry.findOne({
-      userId: req.user._id,
-    }).populate<{ items: Array<Omit<IPantryItem, "foodId"> & { foodId?: PopulatedFoodRef | null }> }>(
-      "items.foodId",
-      "name"
-    )
+    const pantry = await getCanonicalPantry(req.user)
+    await pantry.populate<{
+      items: Array<
+        Omit<IPantryItem, "foodId"> & { foodId?: PopulatedFoodRef | null }
+      >
+    }>("items.foodId", "name")
 
     let inPantry = false
     let pantryQuantity = 0
+    let pantryUnit = "kpl"
     if (pantry?.items) {
       for (const pantryItem of pantry.items) {
-        const populatedId =
-          pantryItem.foodId && typeof pantryItem.foodId === "object"
-            ? String(pantryItem.foodId._id)
-            : pantryItem.foodId
-              ? String(pantryItem.foodId)
-              : ""
+        const populatedId = resolveLocatedFoodId(pantryItem.foodId)
         const populatedName = getPopulatedFoodName(pantryItem.foodId)
-        const itemName = populatedName ?? pantryItem.name
-        const pantryItemName = normalizeName(itemName)
+        const itemName = populatedName ?? pantryItem.name ?? ""
 
         if (
           (populatedId && matchingIds.has(populatedId)) ||
-          pantryItemName === normalizedSearchName ||
-          pantryItemName.includes(normalizedSearchName) ||
-          normalizedSearchName.includes(pantryItemName)
+          availabilityNamesMatch(searchName, itemName)
         ) {
           inPantry = true
           pantryQuantity = pantryItem.quantity || 0
+          pantryUnit = normalizeAppUnit(pantryItem.unit)
           break
         }
       }
     }
 
-    const shoppingLists = await ShoppingList.find({
-      userId: req.user._id,
-    }).populate<{
+    const shoppingLists = await ShoppingList.find(
+      await getDataQuery(req.user)
+    ).populate<{
       items: Array<
         Omit<IShoppingListItem, "foodId"> & { foodId?: PopulatedFoodRef | null }
       >
@@ -1014,30 +1021,24 @@ export const checkItemAvailability = async (
 
     let inShoppingList = false
     let shoppingListQuantity = 0
+    let shoppingListUnit = "kpl"
     let shoppingListId: IShoppingList["_id"] | null = null
 
     for (const list of shoppingLists) {
       if (!list.items) continue
 
       for (const listItem of list.items) {
-        const populatedId =
-          listItem.foodId && typeof listItem.foodId === "object"
-            ? String(listItem.foodId._id)
-            : listItem.foodId
-              ? String(listItem.foodId)
-              : ""
+        const populatedId = resolveLocatedFoodId(listItem.foodId)
         const populatedName = getPopulatedFoodName(listItem.foodId)
-        const itemName = populatedName ?? listItem.name
-        const listItemName = normalizeName(itemName)
+        const itemName = populatedName ?? listItem.name ?? ""
 
         if (
           (populatedId && matchingIds.has(populatedId)) ||
-          listItemName === normalizedSearchName ||
-          listItemName.includes(normalizedSearchName) ||
-          normalizedSearchName.includes(listItemName)
+          availabilityNamesMatch(searchName, itemName)
         ) {
           inShoppingList = true
           shoppingListQuantity = listItem.quantity || 0
+          shoppingListUnit = normalizeAppUnit(listItem.unit)
           shoppingListId = list._id
           break
         }
@@ -1050,8 +1051,10 @@ export const checkItemAvailability = async (
       success: true,
       inPantry,
       pantryQuantity,
+      pantryUnit,
       inShoppingList,
       shoppingListQuantity,
+      shoppingListUnit,
       shoppingListId,
       hasMatchingFoodItem: matchingItems.length > 0,
       matchingFoodItems: matchingItems.map((item) => ({
