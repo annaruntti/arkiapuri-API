@@ -134,7 +134,10 @@ export const dishFromPhotoResponseSchema = {
   type: "OBJECT",
   properties: {
     name: { type: "STRING" },
-    recipe: { type: "STRING" },
+    recipeSteps: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
     servings: { type: "NUMBER" },
     cookingTime: { type: "NUMBER" },
     difficultyLevel: { type: "STRING" },
@@ -163,5 +166,5 @@ export const dishFromPhotoResponseSchema = {
       },
     },
   },
-  required: ["name", "recipe", "ingredients"],
+  required: ["name", "recipeSteps", "ingredients"],
 }

@@ -4,6 +4,7 @@
  * fills product data. The API does not persist a meal.
  */
 import { VALID_MEAL_CATEGORIES } from "../../../models/meal"
+import { joinRecipeSteps, normalizeRecipeSteps } from "../../../helpers/recipeSteps"
 import { enrichPantryCandidates } from "../../foodNameLookup"
 import {
   completeStructured,
@@ -54,7 +55,7 @@ const DIFFICULTY_ALIASES: Record<string, MealDifficulty> = {
 
 export const DISH_FROM_PHOTO_SYSTEM = `You are Arkiapuri's meal identifier. You identify a cooked dish or plated meal from a photo and propose a meal to save.
 
-Goal: return the dish's Finnish name, estimated ingredients with quantities, and a Finnish recipe. The user will review and edit the suggestion.
+Goal: return the dish's Finnish name, estimated ingredients with quantities, and a Finnish recipe as separate steps.
 
 Rules:
 - Name the dish in Finnish (e.g. "Pasta carbonara", "Lohikeitto", "Kanawokki").
@@ -65,14 +66,14 @@ Rules:
 - quantityGuess is an estimate for the given serving count. Unit is one of: kpl, g, kg, ml, dl, l, tl, rkl.
 - category is one of: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.
 - confidence 0–1. Use a low value if identification is uncertain.
-- recipe is a Finnish cooking instruction in numbered steps. Use the same ingredient names as in the ingredients list.
+- recipeSteps is an array of Finnish cooking steps, one action per item. Do not include step numbers in the text. Use the same ingredient names as in the ingredients list.
 - servings 1–12, default 4. cookingTime in minutes.
 - difficultyLevel is easy, medium, or hard.
 - defaultRoles: breakfast, lunch, snack, dinner, supper, dessert, other.
 - mealCategory: porridge, pie, sandwich, salad, soup, pasta, pizza, burger, wrap, stew, casserole, asian, texmex, wok, curry, steak, mincedMeat, vegetarian, egg, grill, fish, chicken, lamb, pork, game, dessert, other.`
 
 export const DISH_FROM_PHOTO_USER =
-  "Identify the dish in the photo. Return JSON with name, recipe, ingredients, servings, cooking time, difficulty, meal roles, and category."
+  "Identify the dish in the photo. Return JSON with name, recipeSteps, ingredients, servings, cooking time, difficulty, meal roles, and category."
 
 const clampServings = (value: unknown): number => {
   const parsed = Number(value)
@@ -115,13 +116,28 @@ const normalizeCategories = (value: unknown): string[] => {
   return [...new Set(categories)]
 }
 
+const stripStepNumber = (value: string): string =>
+  value.replace(/^\s*(?:\d+[\.\):]|[-*•])\s+/, "").trim()
+
 export const normalizeDishMealDraft = (
   data: DishFromPhotoModelOutput
 ): DishMealDraft => {
   const name = String(data?.name || "").trim() || "Tunnistettu ateria"
+  const fromArray = Array.isArray(data?.recipeSteps) ? data.recipeSteps : []
+  const fromRecipe = String(data?.recipe || "").trim()
+  const recipeSteps = normalizeRecipeSteps(
+    fromArray.length
+      ? fromArray.map((step) => stripStepNumber(String(step || "")))
+      : fromRecipe
+        ? fromRecipe
+            .split(/\r?\n/)
+            .map((line) => stripStepNumber(line))
+        : []
+  )
   return {
     name,
-    recipe: String(data?.recipe || "").trim(),
+    recipeSteps,
+    recipe: recipeSteps.length ? joinRecipeSteps(recipeSteps) : fromRecipe,
     servings: clampServings(data?.servings),
     cookingTime: clampCookingTime(data?.cookingTime),
     difficultyLevel: normalizeDifficulty(data?.difficultyLevel),

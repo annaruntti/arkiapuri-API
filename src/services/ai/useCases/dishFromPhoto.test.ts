@@ -7,7 +7,7 @@ describe("normalizeDishMealDraft", () => {
   it("fills defaults and canonicalizes roles and categories", () => {
     const draft = normalizeDishMealDraft({
       name: "  Pasta carbonara  ",
-      recipe: "Keitä pasta.",
+      recipeSteps: ["Keitä pasta.", "Paista pekoni."],
       servings: 4,
       cookingTime: 25,
       difficultyLevel: "easy",
@@ -17,7 +17,8 @@ describe("normalizeDishMealDraft", () => {
     })
 
     assert.equal(draft.name, "Pasta carbonara")
-    assert.equal(draft.recipe, "Keitä pasta.")
+    assert.deepEqual(draft.recipeSteps, ["Keitä pasta.", "Paista pekoni."])
+    assert.equal(draft.recipe, "1. Keitä pasta.\n2. Paista pekoni.")
     assert.equal(draft.servings, 4)
     assert.equal(draft.cookingTime, 25)
     assert.equal(draft.difficultyLevel, "easy")
@@ -31,6 +32,14 @@ describe("normalizeDishMealDraft", () => {
     assert.equal(draft.servings, 4)
     assert.deepEqual(draft.defaultRoles, ["dinner"])
     assert.equal(draft.difficultyLevel, "medium")
+    assert.deepEqual(draft.recipeSteps, [])
+  })
+
+  it("splits a legacy recipe string into steps", () => {
+    const draft = normalizeDishMealDraft({
+      recipe: "1. Keitä pasta.\n2. Paista pekoni.",
+    })
+    assert.deepEqual(draft.recipeSteps, ["Keitä pasta.", "Paista pekoni."])
   })
 })
 

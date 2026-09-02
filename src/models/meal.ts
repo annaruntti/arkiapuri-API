@@ -42,6 +42,7 @@ export interface IMealIngredient {
 export interface IMeal extends Document {
   name: string
   recipe?: string
+  recipeSteps?: string[]
   difficultyLevel?: "easy" | "medium" | "hard"
   cookingTime?: number
   defaultRoles: string
@@ -87,6 +88,10 @@ const mealSchema = new Schema<IMeal>({
   },
   recipe: {
     type: String,
+  },
+  recipeSteps: {
+    type: [String],
+    default: [],
   },
   difficultyLevel: {
     type: String,

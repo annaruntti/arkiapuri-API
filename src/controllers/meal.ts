@@ -21,6 +21,11 @@ import {
   normalizeMealCategories,
   normalizeMealIngredientInputs,
 } from "../helpers/mealIngredients"
+import {
+  hasRecipeContent,
+  joinRecipeSteps,
+  normalizeRecipeSteps,
+} from "../helpers/recipeSteps"
 
 const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 const User = resolveModule<IUserModel>(require("../models/user"))
@@ -44,6 +49,7 @@ const VALID_ROLES: MealRole[] = [
 interface CreateMealBody {
   name?: string
   recipe?: string
+  recipeSteps?: string[]
   difficultyLevel?: "easy" | "medium" | "hard"
   cookingTime?: number
   foodItems?: Array<
@@ -131,6 +137,7 @@ export const createMeal = async (
     const {
       name,
       recipe,
+      recipeSteps,
       difficultyLevel,
       cookingTime,
       foodItems,
@@ -142,7 +149,10 @@ export const createMeal = async (
       createdAt,
     } = req.body
 
-    if (!name || !recipe) {
+    const steps = normalizeRecipeSteps(recipeSteps)
+    const recipeText = steps.length ? joinRecipeSteps(steps) : String(recipe || "").trim()
+
+    if (!name || !hasRecipeContent(steps, recipeText)) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields",
@@ -209,7 +219,8 @@ export const createMeal = async (
     const ownership = getDataOwnership(req.user)
     const meal = new Meal({
       name,
-      recipe,
+      recipe: recipeText,
+      recipeSteps: steps,
       difficultyLevel,
       cookingTime,
       foodItems: ingredientRows,
@@ -320,6 +331,14 @@ export const updateMeal = async (
         }
       }
       updateData.foodItems = ingredientRows as CreateMealBody["foodItems"]
+    }
+
+    if (updateData.recipeSteps !== undefined) {
+      const steps = normalizeRecipeSteps(updateData.recipeSteps)
+      updateData.recipeSteps = steps
+      if (steps.length) {
+        updateData.recipe = joinRecipeSteps(steps)
+      }
     }
 
     const updatedMeal = await Meal.findOneAndUpdate(accessQuery, updateData, {

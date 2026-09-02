@@ -62,6 +62,7 @@ export interface RawDishIngredient extends RawPantryDetection {
 export interface DishFromPhotoModelOutput {
   name?: string
   recipe?: string
+  recipeSteps?: string[]
   servings?: number
   cookingTime?: number
   difficultyLevel?: string
@@ -73,6 +74,7 @@ export interface DishFromPhotoModelOutput {
 export interface DishMealDraft {
   name: string
   recipe: string
+  recipeSteps: string[]
   servings: number
   cookingTime: number
   difficultyLevel: MealDifficulty
