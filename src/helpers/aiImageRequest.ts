@@ -4,6 +4,8 @@ export const ALLOWED_AI_IMAGE_MIME = new Set([
   "image/jpg",
   "image/png",
   "image/webp",
+  "image/heic",
+  "image/heif",
 ])
 
 export type ParsedAiImage = {
@@ -42,7 +44,8 @@ export const parseAiImageBody = (body: {
     return {
       ok: false,
       status: 400,
-      message: "Kuvan tyyppi ei ole tuettu. Käytä JPEG-, PNG- tai WebP-kuvaa.",
+      message:
+        "Kuvan tyyppi ei ole tuettu. Käytä JPEG-, PNG-, WebP- tai HEIC-kuvaa.",
     }
   }
   if (parsed.base64.length > MAX_AI_IMAGE_CHARS) {
