@@ -1,5 +1,5 @@
 import mongoose, { type Model } from "mongoose"
-import type { IPantry, IPantryItem } from "../models/pantry"
+import type { IPantry, IPantryItem, IPantryLocation } from "../models/pantry"
 import type { IUser } from "../models/user"
 import {
   getDataOwnership,
@@ -7,6 +7,11 @@ import {
 } from "./householdHelpers"
 import { resolveModule } from "./controllerUtils"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
+import {
+  hydratePantryLocations,
+  itemLocationKey,
+  locationIdString,
+} from "./pantryLocations"
 
 const Pantry = resolveModule<Model<IPantry>>(require("../models/pantry"))
 
@@ -24,6 +29,27 @@ export const pantryItemMergeKey = (name: string): string =>
     .replace(/[^\p{L}\p{N}]+/gu, "")
     .trim()
 
+/** Apply an expirationDate update. Falsy values (null, "") clear the stored date. */
+export const applyPantryItemExpirationDate = (
+  item: Pick<IPantryItem, "expirationDate" | "expirationDateSetByUser">,
+  expirationDate: unknown
+): void => {
+  if (!expirationDate) {
+    const doc = item as typeof item & {
+      set?: (path: string, value: unknown) => unknown
+    }
+    if (typeof doc.set === "function") {
+      doc.set("expirationDate", null)
+    } else {
+      item.expirationDate = null
+    }
+    item.expirationDateSetByUser = false
+    return
+  }
+  item.expirationDate = new Date(expirationDate as string | Date)
+  item.expirationDateSetByUser = true
+}
+
 const getFoodIdString = (item: IPantryItem): string | null => {
   const foodId = item.foodId as unknown
   if (!foodId) return null
@@ -31,6 +57,20 @@ const getFoodIdString = (item: IPantryItem): string | null => {
     return String((foodId as { _id: unknown })._id)
   }
   return String(foodId)
+}
+
+const depopulateItemFoodId = (item: IPantryItem): void => {
+  const foodId = item.foodId as unknown
+  if (foodId && typeof foodId === "object" && foodId !== null && "_id" in foodId) {
+    item.foodId = (foodId as { _id: IPantryItem["foodId"] })._id
+  }
+}
+
+/** Populated foodId documents cannot be saved back into an ObjectId field. */
+export const depopulatePantryFoodIds = (pantry: IPantry): void => {
+  for (const item of pantry.items || []) {
+    depopulateItemFoodId(item)
+  }
 }
 
 /**
@@ -50,7 +90,8 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
   type Acc = {
     primary: IPantryItem
     quantity: number
-    expirationDate?: Date
+    expirationDate?: Date | null
+    expirationDateSetByUser: boolean
     unit: string
   }
 
@@ -61,12 +102,12 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
     const nameKey = pantryItemMergeKey(getItemName(item))
     const foodId = getFoodIdString(item)
     const itemUnit = normalizeAppUnit(item.unit)
-    // Include unit so e.g. "1 kpl" and "500 g" of the same product are not
-    // summed into a nonsense amount like "501 kpl".
+    const locationKey = itemLocationKey(item)
+    // Include unit and location so fridge milk and cupboard milk stay separate.
     const key = nameKey
-      ? `name:${nameKey}:unit:${itemUnit}`
+      ? `name:${nameKey}:unit:${itemUnit}:loc:${locationKey}`
       : foodId
-        ? `food:${foodId}:unit:${itemUnit}`
+        ? `food:${foodId}:unit:${itemUnit}:loc:${locationKey}`
         : `id:${String(item._id)}`
 
     const existing = groups.get(key)
@@ -75,6 +116,7 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
         primary: item,
         quantity: Number(item.quantity) || 0,
         expirationDate: item.expirationDate,
+        expirationDateSetByUser: Boolean(item.expirationDateSetByUser),
         unit: itemUnit,
       })
       continue
@@ -88,6 +130,7 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
         new Date(item.expirationDate) < new Date(existing.expirationDate))
     ) {
       existing.expirationDate = item.expirationDate
+      existing.expirationDateSetByUser = Boolean(item.expirationDateSetByUser)
     }
     // Prefer the row that already has a linked food item
     if (!getFoodIdString(existing.primary) && foodId) {
@@ -116,18 +159,19 @@ export const mergeDuplicatePantryItems = (pantry: IPantry): boolean => {
     const raw = group.primary.toObject
       ? group.primary.toObject()
       : { ...group.primary }
-    // Drop mongoose subdoc id so a fresh subdocument is created; keep foodId link
-    delete (raw as { _id?: unknown })._id
+    const keptId = group.primary._id
     if (raw.foodId && typeof raw.foodId === "object" && raw.foodId !== null) {
       raw.foodId =
         (raw.foodId as { _id?: unknown })._id || raw.foodId
     }
     return {
       ...raw,
+      ...(keptId ? { _id: keptId } : {}),
       name: getItemName(group.primary),
       quantity: group.quantity,
       unit: normalizeAppUnit(group.unit),
-      expirationDate: group.expirationDate || raw.expirationDate,
+      expirationDate: group.expirationDate ?? raw.expirationDate,
+      expirationDateSetByUser: group.expirationDateSetByUser,
     }
   })
 
@@ -172,10 +216,13 @@ export const mergeProcessedPantryItems = <
           ? String(item.foodId)
           : ""
     const itemUnit = normalizeAppUnit(item.unit)
+    const locationKey = itemLocationKey(
+      item as Pick<IPantryItem, "locationId">
+    )
     const key = nameKey
-      ? `name:${nameKey}:unit:${itemUnit}`
+      ? `name:${nameKey}:unit:${itemUnit}:loc:${locationKey}`
       : foodId
-        ? `food:${foodId}:unit:${itemUnit}`
+        ? `food:${foodId}:unit:${itemUnit}:loc:${locationKey}`
         : `row:${groups.size}`
 
     const existing = groups.get(key)
@@ -204,6 +251,18 @@ export const mergeProcessedPantryItems = <
           new Date(item.expirationDate) < new Date(existing.expirationDate))
           ? item.expirationDate
           : existing.expirationDate,
+      expirationDateSetByUser:
+        item.expirationDate &&
+        (!existing.expirationDate ||
+          new Date(item.expirationDate) < new Date(existing.expirationDate))
+          ? Boolean(
+              (item as { expirationDateSetByUser?: boolean })
+                .expirationDateSetByUser
+            )
+          : Boolean(
+              (existing as { expirationDateSetByUser?: boolean })
+                .expirationDateSetByUser
+            ),
       image: existing.image || item.image,
       foodId: existing.foodId || item.foodId,
     })
@@ -221,6 +280,49 @@ const pantryHouseholdId = (
     return (household as { _id: mongoose.Types.ObjectId })._id
   }
   return household as mongoose.Types.ObjectId
+}
+
+const absorbPantryIntoCanonical = (canonical: IPantry, other: IPantry): void => {
+  const remap = new Map<string, mongoose.Types.ObjectId>()
+
+  for (const location of other.locations || []) {
+    const existing = canonical.locations.find(
+      (row) =>
+        row.type === location.type &&
+        row.name.trim().toLowerCase() === location.name.trim().toLowerCase()
+    )
+    if (existing?._id) {
+      remap.set(String(location._id), existing._id as mongoose.Types.ObjectId)
+      continue
+    }
+    const raw = location.toObject ? location.toObject() : { ...location }
+    delete (raw as { _id?: unknown })._id
+    canonical.locations.push(raw as IPantryLocation)
+    const added = canonical.locations[canonical.locations.length - 1]
+    if (added?._id) {
+      remap.set(String(location._id), added._id as mongoose.Types.ObjectId)
+    }
+  }
+
+  const remapLocation = (value: unknown) => {
+    const oldId = locationIdString(value)
+    if (!oldId) return null
+    return remap.get(oldId) || null
+  }
+
+  for (const item of other.items) {
+    const raw = item.toObject ? item.toObject() : { ...item }
+    delete (raw as { _id?: unknown })._id
+    raw.locationId = remapLocation(raw.locationId)
+    canonical.items.push(raw as IPantryItem)
+  }
+
+  for (const suggestion of other.removalSuggestions || []) {
+    const raw = suggestion.toObject ? suggestion.toObject() : { ...suggestion }
+    delete (raw as { _id?: unknown })._id
+    raw.locationId = remapLocation(raw.locationId)
+    canonical.removalSuggestions.push(raw as IPantry["removalSuggestions"][number])
+  }
 }
 
 const pickCanonicalPantry = (pantries: IPantry[]): IPantry => {
@@ -260,18 +362,20 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
 
   if (allPantries.length === 0) {
     const pantry = new Pantry({ ...ownership, items: [] })
+    hydratePantryLocations(pantry)
     await pantry.save()
     return pantry
   }
 
   if (allPantries.length === 1) {
     const pantry = allPantries[0]
-    const itemsChanged = mergeDuplicatePantryItems(pantry)
     const householdAttached = attachHouseholdIfMissing(
       pantry,
       ownership.household
     )
-    if (itemsChanged || householdAttached) {
+    const locationsHydrated = hydratePantryLocations(pantry)
+    const itemsChanged = mergeDuplicatePantryItems(pantry)
+    if (itemsChanged || householdAttached || locationsHydrated) {
       await pantry.save()
     }
     return pantry
@@ -283,20 +387,7 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
   )
 
   for (const other of others) {
-    for (const item of other.items) {
-      const nameKey = pantryItemMergeKey(item.name)
-      const existing = canonical.items.find(
-        (row) => pantryItemMergeKey(row.name) === nameKey
-      )
-      if (existing) {
-        existing.quantity =
-          (Number(existing.quantity) || 0) + (Number(item.quantity) || 0)
-        continue
-      }
-      const raw = item.toObject ? item.toObject() : { ...item }
-      delete (raw as { _id?: unknown })._id
-      canonical.items.push(raw as IPantryItem)
-    }
+    absorbPantryIntoCanonical(canonical, other)
   }
 
   const householdFromDocs = allPantries
@@ -307,6 +398,7 @@ export const getCanonicalPantry = async (user: IUser): Promise<IPantry> => {
     householdFromDocs || ownership.household
   )
 
+  hydratePantryLocations(canonical)
   mergeDuplicatePantryItems(canonical)
   await canonical.save()
   await Pantry.deleteMany({ _id: { $in: others.map((p) => p._id) } })

@@ -18,6 +18,13 @@ import {
   mergeDuplicatePantryItems,
   pantryItemMergeKey,
 } from "../helpers/pantryHelpers"
+import {
+  findFirstLocationOfType,
+  hydratePantryLocations,
+  inferLocationTypeFromCategories,
+  itemLocationKey,
+  syncStorageCategoryForLocation,
+} from "../helpers/pantryLocations"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
@@ -424,7 +431,17 @@ const transferShoppingItemToPantryDoc = async (
   const pantryQty = parseQuantity(item.quantity)
   const resolvedFoodId = resolveItemFoodId(item.foodId)
   const unit = normalizeAppUnit(item.unit)
-  const expirationDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  hydratePantryLocations(pantry)
+  const inferredType = inferLocationTypeFromCategories(item.category)
+  const inferredLocation = inferredType
+    ? findFirstLocationOfType(pantry, inferredType)
+    : undefined
+  const locationKey = inferredLocation?._id
+    ? String(inferredLocation._id)
+    : "none"
+  const rowCategories = inferredType
+    ? syncStorageCategoryForLocation(item.category, inferredType)
+    : item.category || []
 
   if (resolvedFoodId) {
     const foodItem = await FoodItem.findOne({
@@ -443,21 +460,23 @@ const transferShoppingItemToPantryDoc = async (
       pantry.items.find(
         (pantryItem) =>
           pantryItem.foodId?.toString() === String(resolvedFoodId) &&
-          normalizeAppUnit(pantryItem.unit) === unit
+          normalizeAppUnit(pantryItem.unit) === unit &&
+          itemLocationKey(pantryItem) === locationKey
       )) ||
     pantry.items.find(
       (pantryItem) =>
         pantryItemMergeKey(pantryItem.name) ===
           pantryItemMergeKey(item.name) &&
-        normalizeAppUnit(pantryItem.unit) === unit
+        normalizeAppUnit(pantryItem.unit) === unit &&
+        itemLocationKey(pantryItem) === locationKey
     )
 
   if (existingPantryItem) {
     existingPantryItem.quantity =
       (Number(existingPantryItem.quantity) || 0) + pantryQty
     existingPantryItem.unit = unit
-    existingPantryItem.category = item.category?.length
-      ? item.category
+    existingPantryItem.category = rowCategories.length
+      ? rowCategories
       : existingPantryItem.category || []
     existingPantryItem.calories =
       item.calories || existingPantryItem.calories || 0
@@ -467,11 +486,9 @@ const transferShoppingItemToPantryDoc = async (
       existingPantryItem.foodId = resolvedFoodId
     }
     existingPantryItem.name = item.name
-    if (
-      !existingPantryItem.expirationDate ||
-      expirationDate < existingPantryItem.expirationDate
-    ) {
-      existingPantryItem.expirationDate = expirationDate
+    if (inferredLocation?._id) {
+      existingPantryItem.locationId =
+        inferredLocation._id as typeof existingPantryItem.locationId
     }
   } else {
     pantry.items.push({
@@ -479,11 +496,12 @@ const transferShoppingItemToPantryDoc = async (
       name: item.name,
       quantity: pantryQty,
       unit,
-      expirationDate,
-      category: item.category || [],
+      category: rowCategories,
       calories: item.calories || 0,
       price: item.price || item.estimatedPrice || 0,
       addedFrom: "shopping-list",
+      expirationDateSetByUser: false,
+      locationId: inferredLocation?._id || null,
     } as IPantryItem)
   }
 }
