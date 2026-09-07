@@ -66,9 +66,9 @@ const scoreNames = (
   const pred = asKeys(predicted)
   const gold = asKeys(expected)
   let tp = 0
-  for (const key of pred) {
+  pred.forEach((key) => {
     if (gold.has(key)) tp += 1
-  }
+  })
   const fp = pred.size - tp
   const fn = gold.size - tp
   const precision = pred.size ? tp / pred.size : 0
@@ -93,14 +93,16 @@ const summarizeByTag = (rows: Score[]): TagSummary[] => {
       byTag.set(tag, list)
     }
   }
-  return [...byTag.entries()]
-    .map(([tag, tagged]) => ({
+  const summaries: TagSummary[] = []
+  byTag.forEach((tagged, tag) => {
+    summaries.push({
       tag,
       n: tagged.length,
       precision: average(tagged, "precision"),
       recall: average(tagged, "recall"),
-    }))
-    .sort((a, b) => a.tag.localeCompare(b.tag, "fi"))
+    })
+  })
+  return summaries.sort((a, b) => a.tag.localeCompare(b.tag, "fi"))
 }
 
 const printTable = (rows: Score[]) => {
