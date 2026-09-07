@@ -1,7 +1,7 @@
 import { Response } from "express"
 import type { Model, Types } from "mongoose"
 import type { IFoodItem, IFoodItemNutrition, IFoodItemOpenFoodFacts } from "../models/foodItem"
-import type { IPantryItem } from "../models/pantry"
+import type { IPantryItem, IPantryLocation, PantryRemovalReason } from "../models/pantry"
 import {
   AuthenticatedRequest,
   getErrorMessage,
@@ -15,7 +15,27 @@ import {
   mergeDuplicatePantryItems,
   mergeProcessedPantryItems,
   pantryItemMergeKey,
+  depopulatePantryFoodIds,
+  applyPantryItemExpirationDate,
 } from "../helpers/pantryHelpers"
+import {
+  findFirstLocationOfType,
+  findPantryLocation,
+  hydratePantryLocations,
+  inferLocationTypeFromCategories,
+  isPantryLocationType,
+  itemLocationKey,
+  locationIdString,
+  nextPantryLocationName,
+  syncStorageCategoryForLocation,
+} from "../helpers/pantryLocations"
+import {
+  clearExpiredSuggestionsForItem,
+  dismissRemovalSuggestionsForItems,
+  pruneStaleRemovalSuggestions,
+  serializeActiveRemovalSuggestions,
+  syncExpiredRemovalSuggestions,
+} from "../helpers/pantrySuggestions"
 import {
   getHouseholdMemberIds,
   resolveHouseholdId,
@@ -76,6 +96,8 @@ interface AddFoodItemToPantryBody {
   calories?: number
   nutrition?: IFoodItemNutrition
   expirationDate?: string | Date
+  expirationDateSetByUser?: boolean
+  locationId?: string | null
   foodId?: string
   imageUrl?: string
   barcode?: string
@@ -92,11 +114,40 @@ interface UpdatePantryItemBody {
   calories?: number
   quantity?: number
   expirationDate?: string | Date
+  expirationDateSetByUser?: boolean
+  locationId?: string | null
   [key: string]: unknown
 }
 
 const parsePantryQuantity = (value: number | string | undefined): number =>
   parseQuantity(value, { fallback: 1, min: 0 })
+
+const resolvePantryLocationId = (
+  pantry: Awaited<ReturnType<typeof getCanonicalPantry>>,
+  locationId: unknown
+) => {
+  if (locationId == null || locationId === "") return null
+  const location = findPantryLocation(pantry, locationId)
+  return location?._id ?? null
+}
+
+const persistPantrySideEffects = (
+  pantry: Awaited<ReturnType<typeof getCanonicalPantry>>
+): boolean => {
+  const locationsHydrated = hydratePantryLocations(pantry)
+  const pruned = pruneStaleRemovalSuggestions(pantry)
+  const expiredSynced = syncExpiredRemovalSuggestions(pantry)
+  return locationsHydrated || pruned || expiredSynced
+}
+
+const resolveLocationFromStorageCategories = (
+  pantry: Awaited<ReturnType<typeof getCanonicalPantry>>,
+  categories: unknown[] | undefined
+) => {
+  const type = inferLocationTypeFromCategories(categories)
+  if (!type) return null
+  return findFirstLocationOfType(pantry, type)?._id ?? null
+}
 
 export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -125,7 +176,12 @@ export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    if (mergeDuplicatePantryItems(pantry) || touched) {
+    const hydrated = hydratePantryLocations(pantry)
+    const merged = mergeDuplicatePantryItems(pantry)
+    const pruned = pruneStaleRemovalSuggestions(pantry)
+    const expiredSynced = syncExpiredRemovalSuggestions(pantry)
+    if (hydrated || merged || touched || pruned || expiredSynced) {
+      depopulatePantryFoodIds(pantry)
       await pantry.save()
       await pantry.populate({ path: "items.foodId" })
     }
@@ -133,18 +189,24 @@ export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
     const processedItems = mergeProcessedPantryItems(
       pantry.items.map((item) => {
         const foodItemData =
-          item.foodId && typeof item.foodId === "object"
+          item.foodId &&
+          typeof item.foodId === "object" &&
+          item.foodId !== null &&
+          "name" in (item.foodId as object)
             ? (item.foodId as unknown as Partial<IFoodItem>)
             : {}
+        const raw =
+          typeof item.toObject === "function" ? item.toObject() : { ...item }
         // Prefer the pantry row's own unit — foodItem.unit may be a package
         // default (e.g. g) while the row stores what the user bought (e.g. kpl).
         return {
-          ...item.toObject(),
+          ...raw,
           name: (item.name || foodItemData.name || "Nimetön tuote").trim(),
           category: foodItemData.category || item.category || [],
           unit: normalizeAppUnit(item.unit || foodItemData.unit),
           calories: foodItemData.calories || item.calories || 0,
           price: foodItemData.price || item.price || 0,
+          locationId: locationIdString(item.locationId),
           image:
             foodItemData.image ||
             (foodItemData.openFoodFactsData?.imageUrl
@@ -154,14 +216,18 @@ export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
       })
     )
 
+    const pantryObject = pantry.toObject()
     res.json({
       success: true,
       pantry: {
-        ...pantry.toObject(),
+        ...pantryObject,
         items: processedItems,
+        locations: pantryObject.locations || [],
+        removalSuggestions: serializeActiveRemovalSuggestions(pantry),
       },
     })
   } catch (error: unknown) {
+    console.error("Error in getPantry:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
   }
 }
@@ -184,6 +250,8 @@ export const addFoodItemToPantry = async (
       calories,
       nutrition,
       expirationDate,
+      expirationDateSetByUser,
+      locationId,
       foodId,
       imageUrl,
       barcode,
@@ -273,12 +341,40 @@ export const addFoodItemToPantry = async (
     }
 
     const pantry = await getCanonicalPantry(req.user)
+    persistPantrySideEffects(pantry)
     const rowUnit = normalizeAppUnit(unit || foodItem.unit || "kpl")
     const displayName = normalizedName || foodItem.name
     const rowNameKey = pantryItemMergeKey(displayName)
+    let resolvedLocationId = resolvePantryLocationId(pantry, locationId)
+    if (locationId && !resolvedLocationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Säilytyspaikkaa ei löytynyt",
+      })
+    }
+    if (!resolvedLocationId) {
+      resolvedLocationId = resolveLocationFromStorageCategories(pantry, [
+        ...(category || []),
+        ...(foodItem.category || []),
+      ])
+    }
+    const location = findPantryLocation(pantry, resolvedLocationId)
+    const rowCategories = location
+      ? syncStorageCategoryForLocation(foodItem.category, location.type)
+      : foodItem.category
+    if (location && rowCategories.join("\0") !== (foodItem.category || []).join("\0")) {
+      foodItem.category = rowCategories
+      await foodItem.save()
+    }
+    const rowLocationKey = itemLocationKey({
+      locationId: resolvedLocationId,
+    } as IPantryItem)
+    const userSetExpiration =
+      Boolean(expirationDate) || Boolean(expirationDateSetByUser)
 
     const existingItem = pantry.items.find((item) => {
       if (normalizeAppUnit(item.unit) !== rowUnit) return false
+      if (itemLocationKey(item) !== rowLocationKey) return false
       const itemNameKey = pantryItemMergeKey(item.name)
       if (itemNameKey && itemNameKey === rowNameKey) return true
       // Same catalog id only when the pantry row has no name of its own.
@@ -292,13 +388,18 @@ export const addFoodItemToPantry = async (
     if (existingItem) {
       existingItem.quantity += pantryQty
       existingItem.unit = rowUnit
-      existingItem.category = foodItem.category
+      existingItem.category = rowCategories
       existingItem.calories = foodItem.calories || 0
       existingItem.price = foodItem.price || 0
       existingItem.foodId = foodItem._id
       existingItem.name = displayName
+      if (resolvedLocationId) {
+        existingItem.locationId = resolvedLocationId as typeof existingItem.locationId
+      }
       if (expirationDate) {
         existingItem.expirationDate = new Date(expirationDate)
+        existingItem.expirationDateSetByUser = true
+        clearExpiredSuggestionsForItem(pantry, existingItem._id)
       }
     } else {
       pantry.items.push({
@@ -306,13 +407,16 @@ export const addFoodItemToPantry = async (
         name: displayName,
         quantity: pantryQty,
         unit: rowUnit,
-        category: foodItem.category,
+        category: rowCategories,
         calories: foodItem.calories || 0,
         price: foodItem.price || 0,
-        expirationDate:
-          expirationDate
-            ? new Date(expirationDate)
-            : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        locationId: resolvedLocationId,
+        ...(userSetExpiration && expirationDate
+          ? {
+              expirationDate: new Date(expirationDate),
+              expirationDateSetByUser: true,
+            }
+          : { expirationDateSetByUser: false }),
         addedFrom: "pantry",
       } as IPantryItem)
     }
@@ -361,7 +465,56 @@ export const updatePantryItem = async (
       delete update.image
     }
 
+    if (update.locationId !== undefined) {
+      if (!update.locationId) {
+        item.locationId = null
+      } else {
+        const resolvedLocationId = resolvePantryLocationId(
+          pantry,
+          update.locationId
+        )
+        if (!resolvedLocationId) {
+          return res.status(400).json({
+            success: false,
+            message: "Säilytyspaikkaa ei löytynyt",
+          })
+        }
+        item.locationId = resolvedLocationId as typeof item.locationId
+        const location = findPantryLocation(pantry, resolvedLocationId)
+        if (location) {
+          const nextCategories = syncStorageCategoryForLocation(
+            Array.isArray(update.category)
+              ? update.category
+              : item.category,
+            location.type
+          )
+          item.category = nextCategories
+          update.category = nextCategories
+        }
+      }
+      delete update.locationId
+    } else if (update.category !== undefined) {
+      const inferredLocationId = resolveLocationFromStorageCategories(
+        pantry,
+        Array.isArray(update.category) ? update.category : []
+      )
+      if (inferredLocationId) {
+        item.locationId = inferredLocationId as typeof item.locationId
+      }
+    }
+
+    if (update.expirationDate !== undefined) {
+      applyPantryItemExpirationDate(item, update.expirationDate)
+      clearExpiredSuggestionsForItem(pantry, item._id)
+      delete update.expirationDate
+      delete update.expirationDateSetByUser
+    } else if (update.expirationDateSetByUser !== undefined) {
+      item.expirationDateSetByUser = Boolean(update.expirationDateSetByUser)
+      delete update.expirationDateSetByUser
+    }
+
     Object.assign(item, update)
+    persistPantrySideEffects(pantry)
     await pantry.save()
 
     if (item.foodId) {
@@ -410,9 +563,182 @@ export const removePantryItem = async (
     const pantry = await getCanonicalPantry(req.user)
 
     ;(pantry.items as Types.DocumentArray<IPantryItem>).pull(itemId)
+    pantry.removalSuggestions = pantry.removalSuggestions.filter(
+      (suggestion) => String(suggestion.itemId) !== String(itemId)
+    )
+    pantry.markModified("removalSuggestions")
     await pantry.save()
 
     res.json({ success: true, message: "Item removed from pantry" })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+const pantryResponse = (
+  pantry: Awaited<ReturnType<typeof getCanonicalPantry>>
+) => ({
+  ...pantry.toObject(),
+  locations: pantry.locations || [],
+  removalSuggestions: serializeActiveRemovalSuggestions(pantry),
+})
+
+export const addPantryLocation = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { type?: string; name?: string }
+  >,
+  res: Response
+) => {
+  try {
+    const type = req.body.type
+    if (!isPantryLocationType(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Säilytyspaikan tyyppi on pakollinen",
+      })
+    }
+
+    const pantry = await getCanonicalPantry(req.user)
+    persistPantrySideEffects(pantry)
+    const name =
+      String(req.body.name || "").trim() ||
+      nextPantryLocationName(
+        type,
+        pantry.locations.map((location) => location.name)
+      )
+
+    pantry.locations.push({ type, name } as (typeof pantry.locations)[number])
+    await pantry.save()
+
+    res.json({ success: true, pantry: pantryResponse(pantry) })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+export const updatePantryLocation = async (
+  req: AuthenticatedRequest<
+    { locationId: string },
+    unknown,
+    { type?: string; name?: string }
+  >,
+  res: Response
+) => {
+  try {
+    const pantry = await getCanonicalPantry(req.user)
+    persistPantrySideEffects(pantry)
+    const location = findPantryLocation(pantry, req.params.locationId)
+    if (!location) {
+      return res.status(404).json({
+        success: false,
+        message: "Säilytyspaikkaa ei löytynyt",
+      })
+    }
+
+    if (req.body.type !== undefined) {
+      if (!isPantryLocationType(req.body.type)) {
+        return res.status(400).json({
+          success: false,
+          message: "Säilytyspaikan tyyppi ei kelpaa",
+        })
+      }
+      location.type = req.body.type
+    }
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name || "").trim()
+      if (!name) {
+        return res.status(400).json({
+          success: false,
+          message: "Säilytyspaikan nimi on pakollinen",
+        })
+      }
+      location.name = name
+    }
+
+    await pantry.save()
+    res.json({ success: true, pantry: pantryResponse(pantry) })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+export const removePantryLocation = async (
+  req: AuthenticatedRequest<{ locationId: string }>,
+  res: Response
+) => {
+  try {
+    const pantry = await getCanonicalPantry(req.user)
+    persistPantrySideEffects(pantry)
+    const location = findPantryLocation(pantry, req.params.locationId)
+    if (!location) {
+      return res.status(404).json({
+        success: false,
+        message: "Säilytyspaikkaa ei löytynyt",
+      })
+    }
+
+    const locationId = String(location._id)
+    ;(pantry.locations as Types.DocumentArray<IPantryLocation>).pull(locationId)
+
+    for (const item of pantry.items) {
+      if (locationIdString(item.locationId) === locationId) {
+        item.locationId = null
+      }
+    }
+
+    pantry.set(
+      "removalSuggestions",
+      pantry.removalSuggestions.filter(
+        (suggestion) => locationIdString(suggestion.locationId) !== locationId
+      )
+    )
+
+    await pantry.save()
+    res.json({ success: true, pantry: pantryResponse(pantry) })
+  } catch (error: unknown) {
+    res.status(400).json({ success: false, error: getErrorMessage(error) })
+  }
+}
+
+export const dismissPantryRemovalSuggestions = async (
+  req: AuthenticatedRequest<
+    Record<string, string>,
+    unknown,
+    { itemIds?: string[]; reason?: PantryRemovalReason }
+  >,
+  res: Response
+) => {
+  try {
+    const itemIds = Array.isArray(req.body.itemIds)
+      ? req.body.itemIds.map(String).filter(Boolean)
+      : []
+    if (itemIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Valitse vähintään yksi tuote",
+      })
+    }
+
+    const reason = req.body.reason
+    if (
+      reason &&
+      reason !== "expired" &&
+      reason !== "missing_from_photo"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Poistoehdotuksen syy ei kelpaa",
+      })
+    }
+
+    const pantry = await getCanonicalPantry(req.user)
+    persistPantrySideEffects(pantry)
+    dismissRemovalSuggestionsForItems(pantry, itemIds, reason)
+    await pantry.save()
+
+    res.json({ success: true, pantry: pantryResponse(pantry) })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
   }

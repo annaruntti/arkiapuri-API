@@ -51,6 +51,7 @@ export interface RawPantryDetection {
 
 export interface PantryScanModelOutput {
   items: RawPantryDetection[]
+  clearlyAbsentNames?: string[]
 }
 
 export type MealDifficulty = "easy" | "medium" | "hard"

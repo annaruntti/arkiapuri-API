@@ -8,6 +8,11 @@ import {
 } from "../helpers/controllerUtils"
 import { getHouseholdMemberIds, resolveHouseholdId } from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
+import { findPantryLocation, sameLocationId } from "../helpers/pantryLocations"
+import {
+  matchMissingLocationItems,
+  replacePhotoMissingSuggestions,
+} from "../helpers/pantrySuggestions"
 import { getAiEntitlement } from "../services/ai/entitlement"
 import {
   BudgetExceededError,
@@ -44,7 +49,7 @@ export const scanPantry = async (
   req: AuthenticatedRequest<
     Record<string, string>,
     unknown,
-    { image?: string; mimeType?: string }
+    { image?: string; mimeType?: string; locationId?: string }
   >,
   res: Response
 ) => {
@@ -58,6 +63,15 @@ export const scanPantry = async (
     return res.status(parsed.status).json({
       success: false,
       message: parsed.message,
+    })
+  }
+
+  const pantry = await getCanonicalPantry(req.user)
+  const location = findPantryLocation(pantry, req.body.locationId)
+  if (!req.body.locationId || !location) {
+    return res.status(400).json({
+      success: false,
+      message: "Valitse säilytyspaikka, jota kuvaat.",
     })
   }
 
@@ -81,26 +95,53 @@ export const scanPantry = async (
           ? { user: { $in: memberIds } }
           : { user: req.user._id }
 
-      const [catalogDocs, pantry] = await Promise.all([
-        FoodItem.find(catalogQuery)
-          .select("name category unit calories nutrition image openFoodFactsData")
-          .lean(),
-        getCanonicalPantry(req.user),
-      ])
+      const catalogDocs = await FoodItem.find(catalogQuery)
+        .select("name category unit calories nutrition image openFoodFactsData")
+        .lean()
 
       const catalog: CatalogFoodMatch[] = catalogDocs.map(toCatalogFoodMatch)
-      const pantryNames = pantry.items.map((item) => item.name)
+      const locationItems = pantry.items.filter((item) =>
+        sameLocationId(item.locationId, location._id)
+      )
+      const pantryNames = locationItems
+        .map((item) => item.name)
+        .filter(Boolean)
 
       const result = await scanPantryImage({
         image: parsed.image,
         catalog,
         pantryNames,
+        locationName: location.name,
       })
       consumedCost = result.estimatedCostUsd || consumedCost
+
+      const missingItems = matchMissingLocationItems(
+        locationItems,
+        result.items,
+        result.clearlyAbsentNames
+      )
+      replacePhotoMissingSuggestions(pantry, location._id, missingItems)
+      await pantry.save()
+
+      const suggestedRemovals = missingItems.map((item) => ({
+        itemId: String(item._id),
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        locationId: String(location._id),
+        locationName: location.name,
+        reason: "missing_from_photo" as const,
+      }))
 
       res.json({
         success: true,
         items: result.items,
+        suggestedRemovals,
+        location: {
+          _id: String(location._id),
+          name: location.name,
+          type: location.type,
+        },
         model: result.model,
         usage: {
           remainingCredits: reserved.remainingCredits,

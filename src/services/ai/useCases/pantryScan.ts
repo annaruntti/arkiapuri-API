@@ -9,36 +9,53 @@ import type {
   PantryScanModelOutput,
 } from "../types"
 
-export const PANTRY_SCAN_SYSTEM = `Olet Arkiapurin pentteriskanneri. Tunnistat elintarvikkeita jääkaapin, kuiva-ainekaapin tai keittiöhyllyn kuvasta.
+export const PANTRY_SCAN_SYSTEM = `You are Arkiapuri's pantry scanner. You identify grocery products in a photo of a fridge, dry-goods cupboard, or kitchen shelf.
 
-Tavoite: listaa KAIKKI näkyvät elintarvikkeet, ei vain etualaa. Täydessä jääkaapissa on usein 20–40 erillistä tuotetta.
+Goal: list EVERY visible grocery product, not only the front row. A full fridge often has 20–40 separate products.
 
-Säännöt:
-- Käy hyllyt järjestelmällisesti: ylähylly → keskihyllyt → alahylly → vihanneslaatikot → ovihyllyt.
-- Listaa myös taka-alalla, osittain peitossa tai pienellä etiketillä olevat tuotteet (matalampi confidence + notes).
-- Sama tuote useassa paketissa: yksi rivi, quantityGuess = näkyvien pakkausten määrä.
-- Käytä suomenkielisiä yleisnimiä elintarvikkeelle, ei astialle (esim. "kivennäisvesi" ei "vesipullo", "maito" ei "maitotölkki", "rasvaton maito", "kananmunat", "tomaatit").
-- Brändi omaan kenttään aina kun se on luettavissa (esim. Novelle, Valio). Älä jätä brändiä pois, jos logo tai nimi näkyy.
-- Älä keksi tuotteita joita et näe. Älä listaa astioita, hyllyjä, magneetteja tai tyhjiä rasioita.
-- Älä pysähdy ~10 tuotteeseen, jos kuvassa on enemmän.
+Rules:
+- Work through shelves in order: top → middle → bottom → vegetable drawers → door shelves.
+- Also list products that are in the back, partly hidden, or have a small label (lower confidence + notes).
+- Same product in several packs: one row, quantityGuess = number of visible packs.
+- Use Finnish generic names for the food, not the container (e.g. "kivennäisvesi" not "vesipullo", "maito" not "maitotölkki", "rasvaton maito", "kananmunat", "tomaatit").
+- Put the brand in its own field whenever it is readable (e.g. Novelle, Valio). Do not omit a brand if the logo or name is visible.
+- Do not invent products you cannot see. Do not list containers, shelves, magnets, or empty boxes.
+- Do not stop at about 10 products if the photo contains more.
 - confidence 0–1.
-- quantityGuess vain jos määrä on arvioitavissa, muuten 1.
-- unit on yksi: kpl, g, kg, ml, dl, l.
-- category on yksi: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.
-- brand aina kun tuotemerkki on luettavissa; älä arvaa.
-- barcode vain jos viivakoodi (EAN-8/13) on selvästi luettavissa. Älä arvaa numeroita.`
+- quantityGuess only if the amount can be estimated, otherwise 1.
+- unit is one of: kpl, g, kg, ml, dl, l.
+- category is one of: Maitotuotteet, Kasvikset, Liha, Kala, Kasviproteiinit, Kuiva-aineet, Juomat, Mausteet, Säilykkeet, Valmisateriat, Leivontatarvikkeet, Pakasteet.
+- brand whenever the brand is readable; do not guess.
+- barcode only if a barcode (EAN-8/13) is clearly readable. Do not guess digits.
+- clearlyAbsentNames: list ONLY products already marked in this location that are likely missing from the photo. If a product could be hidden, in the back, or partly covered, do not list it.`
 
 export const PANTRY_SCAN_USER =
-  "Listaa jokainen kuvassa näkyvä elintarvike. Käy kaikki hyllyt ja ovihyllyt. Palauta JSON items-kentässä."
+  "List every grocery product visible in the photo. Check all shelves and door shelves. Return JSON in the items field."
+
+export const buildPantryScanUserPrompt = (
+  locationName?: string,
+  existingNames: string[] = []
+): string => {
+  const locationLine = locationName
+    ? `This photo is from the location "${locationName}". `
+    : ""
+  const existingLine =
+    existingNames.length > 0
+      ? `\n\nThis location currently lists: ${existingNames.join(", ")}.\nReturn clearlyAbsentNames only for products that are likely missing from the photo. If a product could be hidden, do not list it.`
+      : ""
+  return `${locationLine}${PANTRY_SCAN_USER}${existingLine}`
+}
 
 export const scanPantryImage = async (params: {
   image: ImageInput
   catalog?: CatalogFoodMatch[]
   pantryNames?: string[]
+  locationName?: string
   model?: string
   enrich?: boolean
 }): Promise<{
   items: NormalizedPantryCandidate[]
+  clearlyAbsentNames: string[]
   model: string
   estimatedCostUsd: number
   inputTokens: number
@@ -46,7 +63,7 @@ export const scanPantryImage = async (params: {
 }> => {
   const result = await completeStructured<PantryScanModelOutput>({
     system: PANTRY_SCAN_SYSTEM,
-    user: PANTRY_SCAN_USER,
+    user: buildPantryScanUserPrompt(params.locationName, params.pantryNames),
     image: params.image,
     schema: pantryScanResponseSchema,
     model: params.model,
@@ -82,6 +99,9 @@ export const scanPantryImage = async (params: {
 
   return {
     items,
+    clearlyAbsentNames: Array.isArray(result.data?.clearlyAbsentNames)
+      ? result.data.clearlyAbsentNames.map((name) => String(name || "").trim()).filter(Boolean)
+      : [],
     model: result.model,
     estimatedCostUsd: result.estimatedCostUsd,
     inputTokens: result.inputTokens,

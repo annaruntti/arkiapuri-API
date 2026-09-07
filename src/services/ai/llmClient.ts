@@ -125,6 +125,10 @@ export const pantryScanResponseSchema = {
         required: ["name", "confidence"],
       },
     },
+    clearlyAbsentNames: {
+      type: "ARRAY",
+      items: { type: "STRING" },
+    },
   },
   required: ["items"],
 }
