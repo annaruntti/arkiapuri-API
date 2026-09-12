@@ -42,11 +42,12 @@ const resolveRefId = (value: unknown): string => {
   if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
     return value.toString("hex")
   }
-  if (
-    ArrayBuffer.isView(value) &&
-    (value as ArrayLike<number>).length === 12
-  ) {
-    return Buffer.from(value as Uint8Array).toString("hex")
+  if (ArrayBuffer.isView(value) && value.byteLength === 12) {
+    return Buffer.from(
+      value.buffer,
+      value.byteOffset,
+      value.byteLength
+    ).toString("hex")
   }
   if (typeof value === "object") {
     const obj = value as { _id?: unknown; toHexString?: () => string }
