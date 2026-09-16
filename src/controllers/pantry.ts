@@ -1,5 +1,5 @@
 import { Response } from "express"
-import type { Model, Types } from "mongoose"
+import { type Model, Types } from "mongoose"
 import type { IFoodItem, IFoodItemNutrition, IFoodItemOpenFoodFacts } from "../models/foodItem"
 import type { IPantryItem, IPantryLocation, PantryRemovalReason } from "../models/pantry"
 import {
@@ -560,14 +560,22 @@ export const removePantryItem = async (
 ) => {
   try {
     const { itemId } = req.params
-    const pantry = await getCanonicalPantry(req.user)
+    if (!Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Virheellinen tuote",
+      })
+    }
 
-    ;(pantry.items as Types.DocumentArray<IPantryItem>).pull(itemId)
-    pantry.removalSuggestions = pantry.removalSuggestions.filter(
-      (suggestion) => String(suggestion.itemId) !== String(itemId)
-    )
-    pantry.markModified("removalSuggestions")
-    await pantry.save()
+    const pantry = await getCanonicalPantry(req.user)
+    const itemObjectId = new Types.ObjectId(itemId)
+
+    await pantry.updateOne({
+      $pull: {
+        items: { _id: itemObjectId },
+        removalSuggestions: { itemId: itemObjectId },
+      },
+    })
 
     res.json({ success: true, message: "Item removed from pantry" })
   } catch (error: unknown) {
