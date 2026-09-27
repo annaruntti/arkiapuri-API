@@ -1,0 +1,35 @@
+{
+  "baselineMonth": "2026-08",
+  "names": [
+    { "name": "maito", "eur": 1.15, "unit": "l" },
+    { "name": "banaani", "eur": 1.99, "unit": "kg" },
+    { "name": "leipä", "eur": 2.8, "unit": "kpl" },
+    { "name": "kananmuna", "eur": 0.3, "unit": "kpl" },
+    { "name": "juusto", "eur": 9.5, "unit": "kg" },
+    { "name": "jauheliha", "eur": 10, "unit": "kg" },
+    { "name": "kana", "eur": 9, "unit": "kg" },
+    { "name": "peruna", "eur": 1.3, "unit": "kg" },
+    { "name": "sipuli", "eur": 1.6, "unit": "kg" },
+    { "name": "tomaatti", "eur": 3.5, "unit": "kg" },
+    { "name": "omena", "eur": 2.4, "unit": "kg" },
+    { "name": "kahvi", "eur": 12, "unit": "kg" },
+    { "name": "voi", "eur": 11, "unit": "kg" },
+    { "name": "riisi", "eur": 2.5, "unit": "kg" },
+    { "name": "makaroni", "eur": 2.2, "unit": "kg" },
+    { "name": "jogurtti", "eur": 2, "unit": "l" },
+    { "name": "mehu", "eur": 2.2, "unit": "l" }
+  ],
+  "categories": [
+    { "id": 1, "name": "Kasviproteiinit", "eur": 8, "unit": "kg" },
+    { "id": 2, "name": "Kala", "eur": 16, "unit": "kg" },
+    { "id": 3, "name": "Liha", "eur": 12, "unit": "kg" },
+    { "id": 4, "name": "Kasvikset", "eur": 3, "unit": "kg" },
+    { "id": 5, "name": "Maitotuotteet", "eur": 1.5, "unit": "l" },
+    { "id": 6, "name": "Kuiva-aineet", "eur": 3, "unit": "kg" },
+    { "id": 7, "name": "Valmisateriat", "eur": 4.5, "unit": "kpl" },
+    { "id": 23, "name": "Säilykkeet", "eur": 2.2, "unit": "kpl" },
+    { "id": 25, "name": "Juomat", "eur": 1.8, "unit": "l" },
+    { "id": 26, "name": "Mausteet", "eur": 2.5, "unit": "kpl" },
+    { "id": 27, "name": "Leivontatarvikkeet", "eur": 3.5, "unit": "kg" }
+  ]
+}
