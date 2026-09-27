@@ -12,6 +12,7 @@ import {
   mapOpenFoodFactsToFoodItemFields,
   normalizeAppUnit,
 } from "../utils/openFoodFactsMapper"
+import { fillFoodItemPriceFromOpenPrices } from "../services/openPrices"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -291,30 +292,43 @@ export const addToFoodItems = async (
     })
 
     const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
-    // Client search hits often lack product_quantity and misparse labels like
-    // "4 kpl, 350 g" as 4 kpl. This endpoint re-fetches by barcode, so its
-    // mapped package size is authoritative whenever the client only sent a
-    // default piece unit (kpl/pcs) while OFF has a real mass/volume package.
+    // FoodItem always keeps the OFF package size (e.g. 400 g). Shopping-list
+    // rows count packages in kpl so two scans become "2 kpl", not "800 g".
+    const foodUnit = mapped.unit || normalizeAppUnit(unit)
+    const foodPackageQuantity =
+      Number(mapped.packageQuantity) > 0 ? Number(mapped.packageQuantity) : 1
     const clientSentDefaultUnit = !unit || unit === "pcs" || unit === "kpl"
     const requestedQuantity = parseFloat(String(quantity))
     const hasValidRequestedQuantity =
       Number.isFinite(requestedQuantity) && requestedQuantity > 0
-    const preferOffPackage =
-      clientSentDefaultUnit &&
-      (mapped.unit !== "kpl" ||
-        !hasValidRequestedQuantity ||
-        requestedQuantity === 1)
-    const normalizedUnit = preferOffPackage
-      ? mapped.unit
-      : normalizeAppUnit(unit)
-    const parsedQuantity = preferOffPackage
-      ? mapped.packageQuantity
-      : hasValidRequestedQuantity
-        ? requestedQuantity
-        : mapped.packageQuantity || 1
+    const packagedProduct = foodUnit !== "kpl" && foodPackageQuantity > 0
+
+    let collectionUnit: string
+    let collectionQuantity: number
+    if (location === "shopping-list" && packagedProduct) {
+      collectionUnit = "kpl"
+      collectionQuantity = hasValidRequestedQuantity ? requestedQuantity : 1
+    } else {
+      // Client search hits often lack product_quantity and misparse labels like
+      // "4 kpl, 350 g" as 4 kpl. This endpoint re-fetches by barcode, so its
+      // mapped package size is authoritative whenever the client only sent a
+      // default piece unit (kpl/pcs) while OFF has a real mass/volume package.
+      const preferOffPackage =
+        clientSentDefaultUnit &&
+        (mapped.unit !== "kpl" ||
+          !hasValidRequestedQuantity ||
+          requestedQuantity === 1)
+      collectionUnit = preferOffPackage ? mapped.unit : normalizeAppUnit(unit)
+      collectionQuantity = preferOffPackage
+        ? mapped.packageQuantity
+        : hasValidRequestedQuantity
+          ? requestedQuantity
+          : mapped.packageQuantity || 1
+    }
 
     if (existingFoodItem) {
       applyMappedOpenFoodFactsToFoodItem(existingFoodItem, mapped, "merge")
+      await fillFoodItemPriceFromOpenPrices(existingFoodItem)
 
       await existingFoodItem.save()
 
@@ -325,8 +339,8 @@ export const addToFoodItems = async (
         fromOpenFoodFacts: true,
         collectionData: {
           location,
-          quantity: parsedQuantity,
-          unit: normalizedUnit,
+          quantity: collectionQuantity,
+          unit: collectionUnit,
           shoppingListId,
           mealId,
         },
@@ -336,8 +350,8 @@ export const addToFoodItems = async (
     const foodItemData = {
       name: mapped.name,
       category: mapped.category,
-      unit: normalizedUnit,
-      packageQuantity: mapped.packageQuantity,
+      unit: foodUnit,
+      packageQuantity: foodPackageQuantity,
       calories: mapped.calories,
       user: req.user._id,
       image: mapped.image,
@@ -350,6 +364,7 @@ export const addToFoodItems = async (
     }
 
     const foodItem = new FoodItem(foodItemData)
+    await fillFoodItemPriceFromOpenPrices(foodItem)
     await foodItem.save()
 
     res.json({
@@ -360,8 +375,8 @@ export const addToFoodItems = async (
       openFoodFactsData: offProduct,
       collectionData: {
         location,
-        quantity: parsedQuantity,
-        unit: normalizedUnit,
+        quantity: collectionQuantity,
+        unit: collectionUnit,
         shoppingListId,
         mealId,
       },
@@ -423,6 +438,7 @@ export const enrichFoodItem = async (
     const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
 
     applyMappedOpenFoodFactsToFoodItem(foodItem, mapped, "replace")
+    await fillFoodItemPriceFromOpenPrices(foodItem)
 
     await foodItem.save()
 

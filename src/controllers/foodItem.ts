@@ -55,6 +55,7 @@ interface UpdateFoodItemBody {
   category?: string[]
   unit?: string
   price?: number
+  priceSource?: "user" | "open-prices"
   calories?: number
   nutrition?: IFoodItem["nutrition"]
   locations?: FoodLocation[]
@@ -251,11 +252,13 @@ export const createFoodItem = async (
       isFood
     )
 
+    const userPrice = Number(price) > 0 ? Number(price) : 0
     const foodItem = new FoodItem({
       name,
       isFood,
       category: safeFields.category || [],
-      price,
+      price: userPrice || price,
+      priceSource: userPrice > 0 ? "user" : undefined,
       calories: safeFields.calories,
       nutrition: safeFields.nutrition,
       user: req.user._id,
@@ -352,6 +355,10 @@ export const updateFoodItem = async (
       updates.nutrition = sanitized.nutrition
       updates.expirationDate = sanitized.expirationDate
       updates.isFood = isFood
+    }
+
+    if (updates.price !== undefined && Number(updates.price) > 0) {
+      updates.priceSource = "user"
     }
 
     const foodItem = await FoodItem.findOneAndUpdate(
@@ -824,10 +831,15 @@ export const findOrCreateFoodItem = async (
       }
       if (unit) existingFoodItem.unit = unit
       if (price !== undefined && price > 0) {
-        existingFoodItem.price =
-          existingFoodItem.price && existingFoodItem.price > 0
-            ? (existingFoodItem.price + price) / 2
-            : price
+        if (
+          existingFoodItem.priceSource === "open-prices" ||
+          !(existingFoodItem.price && existingFoodItem.price > 0)
+        ) {
+          existingFoodItem.price = price
+        } else {
+          existingFoodItem.price = (existingFoodItem.price + price) / 2
+        }
+        existingFoodItem.priceSource = "user"
       }
       if (isFood && calories !== undefined && calories > 0) {
         existingFoodItem.calories =
@@ -857,6 +869,7 @@ export const findOrCreateFoodItem = async (
       category: safeFields.category || [],
       unit: unit || "kpl",
       price: price || 0,
+      priceSource: price && price > 0 ? "user" : undefined,
       calories: safeFields.calories || 0,
       user: req.user._id,
       locations: [],

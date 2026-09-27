@@ -5,18 +5,23 @@ import {
   getShoppingLists,
   updateShoppingList,
   deleteShoppingList,
-  markItemAsBought,
   moveItemToPantry,
   moveItemsToPantry,
   setItemBought,
   deleteShoppingListItem,
   addItemsToShoppingList,
   updateShoppingListItem,
+  previewShoppingListPrices,
 } from "../controllers/shoppingList"
 
 const router = Router()
 
 router.post("/shopping-lists", isAuth, createShoppingList)
+router.post(
+  "/shopping-lists/price-estimates",
+  isAuth,
+  previewShoppingListPrices
+)
 router.post("/shopping-lists/:id/items", isAuth, addItemsToShoppingList)
 router.get("/shopping-lists", isAuth, getShoppingLists)
 router.put("/shopping-lists/:id", isAuth, updateShoppingList)
@@ -50,7 +55,7 @@ router.delete(
 router.post(
   "/shopping-lists/:listId/items/:itemId/bought",
   isAuth,
-  markItemAsBought
+  moveItemToPantry
 )
 
 export default router

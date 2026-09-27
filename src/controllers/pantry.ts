@@ -41,6 +41,7 @@ import {
   resolveHouseholdId,
 } from "../helpers/householdHelpers"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
+import { fillFoodItemPriceFromOpenPrices } from "../services/openPrices"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -308,11 +309,13 @@ export const addFoodItemToPantry = async (
         })
       }
 
+      const userPrice = Number(price) > 0 ? Number(price) : 0
       foodItem = new FoodItem({
         name: normalizedName,
         category: category || [],
         unit: unit || "kpl",
-        price,
+        price: userPrice,
+        priceSource: userPrice > 0 ? "user" : undefined,
         calories,
         nutrition,
         user: req.user._id,
@@ -324,11 +327,15 @@ export const addFoodItemToPantry = async (
         },
       })
       applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
+      await fillFoodItemPriceFromOpenPrices(foodItem)
       await foodItem.save()
     } else {
       if (category) foodItem.category = category
       if (!foodItem.unit && unit) foodItem.unit = unit
-      if (price !== undefined) foodItem.price = price
+      if (price !== undefined && Number(price) > 0) {
+        foodItem.price = Number(price)
+        foodItem.priceSource = "user"
+      }
       if (calories !== undefined) foodItem.calories = calories
       if (nutrition) {
         foodItem.nutrition = {
@@ -337,6 +344,7 @@ export const addFoodItemToPantry = async (
         }
       }
       applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
+      await fillFoodItemPriceFromOpenPrices(foodItem)
       await foodItem.save()
     }
 
