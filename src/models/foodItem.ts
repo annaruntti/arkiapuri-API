@@ -37,6 +37,8 @@ export interface IFoodItem extends Document {
   unit: string
   packageQuantity?: number
   price?: number
+  /** user = typed by the user; open-prices = filled once from Open Prices */
+  priceSource?: "user" | "open-prices"
   calories?: number
   /** Manual / editable nutrition per 100g/ml (also used for non-OFF items) */
   nutrition?: IFoodItemNutrition
@@ -85,6 +87,10 @@ const foodItemSchema = new Schema<IFoodItem>(
     },
     price: {
       type: Number,
+    },
+    priceSource: {
+      type: String,
+      enum: ["user", "open-prices"],
     },
     calories: {
       type: Number,

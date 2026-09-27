@@ -5,6 +5,8 @@ export interface IShoppingListItem extends Document {
   /** false = non-food; cannot move to pantry */
   isFood: boolean
   estimatedPrice?: number
+  priceEstimate?: number
+  priceEstimateSource?: "history" | "category"
   price?: number
   quantity: number
   unit: string
@@ -37,6 +39,14 @@ const shoppingListItemSchema = new Schema<IShoppingListItem>({
   estimatedPrice: {
     type: Number,
     min: 0,
+  },
+  priceEstimate: {
+    type: Number,
+    min: 0,
+  },
+  priceEstimateSource: {
+    type: String,
+    enum: ["history", "category"],
   },
   price: {
     type: Number,
