@@ -27,6 +27,14 @@ import {
   acceptHouseholdInvitation,
   inviteUserToHousehold,
 } from "../services/householdInvite"
+import {
+  cancelHouseholdInvitation,
+  deleteHouseholdMembership,
+  leaveHouseholdMembership,
+  membershipStatusCode,
+  removeHouseholdMember,
+  updateHouseholdMemberRole,
+} from "../services/householdMembership"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -218,43 +226,14 @@ export const leaveHousehold = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-
-    if (!req.user.household) {
-      return res.status(400).json({
+    const result = await leaveHouseholdMembership(req.user)
+    if (result.status !== "ok") {
+      return res.status(membershipStatusCode(result.status)).json({
         success: false,
-        message: "Et ole osa perhettä",
+        message: result.message,
       })
     }
-
-    const household = await Household.findById(householdIdForUser(req.user))
-
-    if (!household) {
-      return res.status(404).json({
-        success: false,
-        message: "Perhettä ei löytynyt",
-      })
-    }
-
-    if (resolveRefId(household.owner) === userId.toString()) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Omistaja ei voi poistua perheestä. Siirrä omistajuus toiselle jäsenelle tai poista perhe.",
-      })
-    }
-
-    household.members = household.members.filter(
-      (member) => resolveRefId(member.userId) !== userId.toString()
-    )
-
-    await household.save()
-    await User.findByIdAndUpdate(userId, { household: null })
-
-    res.json({
-      success: true,
-      message: "Poistuit perheestä onnistuneesti",
-    })
+    res.json({ success: true, message: result.message })
   } catch (error: unknown) {
     console.error("Error leaving household:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -266,75 +245,14 @@ export const removeMember = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const { memberId } = req.params
-
-    const household = await Household.findById(householdIdForUser(req.user))
-
-    if (!household) {
-      return res.status(404).json({
+    const result = await removeHouseholdMember(req.user, req.params.memberId)
+    if (result.status !== "ok") {
+      return res.status(membershipStatusCode(result.status)).json({
         success: false,
-        message: "Perhettä ei löytynyt",
+        message: result.message,
       })
     }
-
-    const role = household.getUserRole(userId)
-    if (role !== "owner" && role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Sinulla ei ole oikeutta poistaa jäseniä",
-      })
-    }
-
-    const targetId = String(memberId)
-    if (!targetId || targetId === "undefined") {
-      return res.status(400).json({
-        success: false,
-        message: "Jäsenen tunniste puuttuu",
-      })
-    }
-
-    if (resolveRefId(household.owner) === targetId) {
-      return res.status(400).json({
-        success: false,
-        message: "Omistajaa ei voi poistaa",
-      })
-    }
-
-    const nextMembers = household.members.filter((member) => {
-      const memberUserId = resolveRefId(member.userId)
-      const memberDocId = resolveRefId(
-        (member as { _id?: unknown })._id
-      )
-      return memberUserId !== targetId && memberDocId !== targetId
-    })
-
-    if (nextMembers.length === household.members.length) {
-      return res.status(404).json({
-        success: false,
-        message: "Jäsentä ei löytynyt",
-      })
-    }
-
-    const removedUserIds = household.members
-      .filter((member) => !nextMembers.includes(member))
-      .map((member) => resolveRefId(member.userId))
-      .filter(Boolean)
-
-    household.members = nextMembers
-    await household.save()
-
-    if (removedUserIds.length > 0) {
-      await User.updateMany(
-        { _id: { $in: removedUserIds } },
-        { household: null }
-      )
-    }
-
-    res.json({
-      success: true,
-      message: "Jäsen poistettu onnistuneesti",
-    })
+    res.json({ success: true, message: result.message })
   } catch (error: unknown) {
     console.error("Error removing member:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -346,50 +264,17 @@ export const cancelInvitation = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const { invitationId } = req.params
-    const household = await Household.findById(householdIdForUser(req.user))
-
-    if (!household) {
-      return res.status(404).json({
+    const result = await cancelHouseholdInvitation(
+      req.user,
+      req.params.invitationId
+    )
+    if (result.status !== "ok") {
+      return res.status(membershipStatusCode(result.status)).json({
         success: false,
-        message: "Perhettä ei löytynyt",
+        message: result.message,
       })
     }
-
-    const role = household.getUserRole(userId)
-    if (role !== "owner" && role !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Sinulla ei ole oikeutta perua kutsuja",
-      })
-    }
-
-    const invitation = await Invitation.findOne({
-      _id: invitationId,
-      household: household._id,
-    })
-
-    if (!invitation) {
-      return res.status(404).json({
-        success: false,
-        message: "Kutsua ei löytynyt",
-      })
-    }
-
-    if (invitation.status !== "pending") {
-      return res.status(400).json({
-        success: false,
-        message: "Kutsu ei ole enää voimassa",
-      })
-    }
-
-    await Invitation.deleteOne({ _id: invitation._id })
-
-    res.json({
-      success: true,
-      message: "Kutsu peruttu",
-    })
+    res.json({ success: true, message: result.message })
   } catch (error: unknown) {
     console.error("Error cancelling invitation:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -405,58 +290,21 @@ export const updateMemberRole = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const { memberId } = req.params
-    const { role } = req.body
-
-    if (!role || !["admin", "member"].includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: "Virheellinen rooli",
-      })
-    }
-
-    const household = await Household.findById(householdIdForUser(req.user))
-
-    if (!household) {
-      return res.status(404).json({
-        success: false,
-        message: "Perhettä ei löytynyt",
-      })
-    }
-
-    if (resolveRefId(household.owner) !== userId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: "Vain omistaja voi muuttaa jäsenten rooleja",
-      })
-    }
-
-    const member = household.members.find(
-      (m) => resolveRefId(m.userId) === String(memberId)
+    const result = await updateHouseholdMemberRole(
+      req.user,
+      req.params.memberId,
+      req.body.role
     )
-
-    if (!member) {
-      return res.status(404).json({
+    if (result.status !== "ok") {
+      return res.status(membershipStatusCode(result.status)).json({
         success: false,
-        message: "Jäsentä ei löytynyt",
+        message: result.message,
       })
     }
-
-    if (resolveRefId(household.owner) === String(memberId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Omistajan roolia ei voi muuttaa",
-      })
-    }
-
-    member.role = role
-    await household.save()
-
     res.json({
       success: true,
-      household,
-      message: "Jäsenen rooli päivitetty onnistuneesti",
+      household: result.household,
+      message: result.message,
     })
   } catch (error: unknown) {
     console.error("Error updating member role:", error)
@@ -469,31 +317,14 @@ export const deleteHousehold = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const household = await Household.findById(householdIdForUser(req.user))
-
-    if (!household) {
-      return res.status(404).json({
+    const result = await deleteHouseholdMembership(req.user)
+    if (result.status !== "ok") {
+      return res.status(membershipStatusCode(result.status)).json({
         success: false,
-        message: "Perhettä ei löytynyt",
+        message: result.message,
       })
     }
-
-    if (resolveRefId(household.owner) !== userId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: "Vain omistaja voi poistaa perheen",
-      })
-    }
-
-    const memberIds = household.members.map((m) => m.userId)
-    await User.updateMany({ _id: { $in: memberIds } }, { household: null })
-    await Household.findByIdAndDelete(household._id)
-
-    res.json({
-      success: true,
-      message: "Perhe poistettu onnistuneesti",
-    })
+    res.json({ success: true, message: result.message })
   } catch (error: unknown) {
     console.error("Error deleting household:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
