@@ -13,6 +13,7 @@ import {
 } from "../helpers/controllerUtils"
 import { EMAIL_TOKEN_TTL, revokeUserTokens, signUserToken } from "../helpers/authToken"
 import { getPasswordLengthError } from "../helpers/passwordPolicy"
+import { registerUser, signInUser } from "../services/userAuth"
 
 const User = resolveModule<IUserModel>(require("../models/user"))
 const Household = resolveModule<Model<IHousehold>>(require("../models/household"))
@@ -29,59 +30,15 @@ export const createUser = async (
   res: Response
 ) => {
   try {
-    const { username, email, password } = req.body
-
-    if (!username || !email || !password) {
-      return res.status(400).json({
+    const result = await registerUser(req.body)
+    if (result.status !== "ok") {
+      const statusCode = result.status === "conflict" ? 200 : 400
+      return res.status(statusCode).json({
         success: false,
-        message: "Username, email and password are required",
+        message: result.message,
       })
     }
-
-    const isNewUser = await User.isThisEmailInUse(email)
-    if (!isNewUser) {
-      return res.json({
-        success: false,
-        message: "This email is already in use, try sign-in",
-      })
-    }
-
-    const user = new User({ username, email, password })
-    await user.save()
-
-    const pendingInvitation = await Invitation.findOne({
-      email: email.toLowerCase(),
-      status: "pending",
-      expiresAt: { $gt: new Date() },
-    })
-
-    if (!pendingInvitation) {
-      try {
-        const household = new Household({
-          name: `${username}n perhe`,
-          owner: user._id,
-          members: [
-            {
-              userId: user._id,
-              role: "owner",
-              joinedAt: new Date(),
-            },
-          ],
-        })
-        await household.save()
-
-        user.household = household._id
-        await user.save()
-      } catch (householdError) {
-        console.error("Error creating household for new user:", householdError)
-      }
-    } else {
-      console.log(
-        `User ${email} has pending invitation - skipping household creation`
-      )
-    }
-
-    res.json({ success: true, user })
+    res.json({ success: true, user: result.user })
   } catch (error: unknown) {
     console.error("Error creating user:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -97,40 +54,14 @@ export const userSignIn = async (
   res: Response
 ) => {
   try {
-    const { email, password } = req.body
-
-    if (!email || !password) {
+    const result = await signInUser(req.body)
+    if (result.status !== "ok") {
       return res.json({
         success: false,
-        message: "email / password does not match!",
+        message: result.message,
       })
     }
-
-    const user = await User.findOne({ email })
-
-    if (!user) {
-      return res.json({
-        success: false,
-        message: "user not found, with the given email!",
-      })
-    }
-
-    const isMatch = await user.comparePassword(password)
-    if (!isMatch) {
-      return res.json({
-        success: false,
-        message: "email / password does not match!",
-      })
-    }
-
-    const token = signUserToken(user, EMAIL_TOKEN_TTL)
-
-    const populatedUser = await User.findById(user._id)
-      .select("-password")
-      .populate("foodItems")
-      .populate("meals")
-
-    res.json({ success: true, user: populatedUser, token })
+    res.json({ success: true, user: result.user, token: result.token })
   } catch (error: unknown) {
     console.error("Error signing in:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
