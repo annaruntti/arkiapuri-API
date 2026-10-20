@@ -1,7 +1,18 @@
 import type { IShoppingListItem } from "../models/shoppingList"
-import { parseQuantity } from "../helpers/controllerUtils"
+import {
+  AuthenticatedRequest,
+  parseQuantity,
+} from "../helpers/controllerUtils"
+import { getDataQuery } from "../helpers/householdHelpers"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 import { positivePrice } from "./priceEstimate"
+
+export const shoppingListAccessQuery = async (
+  user: AuthenticatedRequest["user"],
+  listId: string
+) => ({
+  $and: [{ _id: listId }, await getDataQuery(user)],
+})
 
 export const FOOD_ITEM_SELECT =
   "name category unit packageQuantity calories price priceSource image openFoodFactsData isFood"
