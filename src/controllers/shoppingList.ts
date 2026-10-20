@@ -30,6 +30,7 @@ import {
   updateShoppingListItemForUser,
 } from "../services/shoppingListItemMutations"
 import { updateShoppingListForUser } from "../services/shoppingListUpdate"
+import { addItemsToShoppingListForUser } from "../services/shoppingListAddItems"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -349,54 +350,26 @@ export const addItemsToShoppingList = async (
   res: Response
 ) => {
   try {
-    const { id } = req.params
-    const { items } = req.body
-
-    if (!Array.isArray(items) || items.length === 0) {
+    const result = await addItemsToShoppingListForUser(
+      req.user,
+      req.params.id,
+      req.body.items
+    )
+    if (result.status === "bad_request") {
       return res.status(400).json({
         success: false,
-        message: "Items are required",
+        message: result.message,
       })
     }
-
-    const shoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, id)
-    )
-
-    if (!shoppingList) {
+    if (result.status !== "ok") {
       return res.status(404).json({
         success: false,
-        message: "Shopping list not found or unauthorized",
+        message: result.message,
       })
     }
-
-    // Ignore client-provided row ids on create — barcode flow may send a
-    // FoodItem id as _id, which breaks later delete/update by row id.
-    const mappedItems = await prepareShoppingListItemsForAdd(req.user, items)
-    shoppingList.items.push(...mappedItems)
-
-    shoppingList.totalEstimatedPrice = shoppingListDisplayTotal(
-      shoppingList.items
-    )
-
-    await shoppingList.save()
-
-    const updatedShoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, id)
-    ).populate({
-      path: "items.foodId",
-      select: FOOD_ITEM_SELECT,
-    })
-
     res.json({
       success: true,
-      shoppingList: updatedShoppingList
-        ? mergeFoodIdIntoItems(
-            updatedShoppingList.toObject() as unknown as {
-              items: Array<Record<string, unknown>>
-            }
-          )
-        : shoppingList,
+      shoppingList: result.shoppingList,
     })
   } catch (error: unknown) {
     console.error("Error in addItemsToShoppingList:", error)

@@ -2,7 +2,6 @@ import { Response } from "express"
 import type { Model } from "mongoose"
 import fs from "fs"
 import cloudinary from "../helpers/imageUpload"
-import type { IFoodItem } from "../models/foodItem"
 import type { IMeal } from "../models/meal"
 import type { IUserModel } from "../models/user"
 import {
@@ -15,27 +14,15 @@ import { getDataQuery } from "../helpers/householdHelpers"
 import {
   flattenMealFoodItems,
   MEAL_FOOD_CATALOG_SELECT,
-  normalizeMealCategories,
-  normalizeMealIngredientInputs,
 } from "../helpers/mealIngredients"
-import {
-  clampEatingDatesToCooking,
-  normalizeMealDate,
-  normalizeMealDates,
-  normalizeServings,
-} from "../helpers/mealDates"
-import {
-  joinRecipeSteps,
-  normalizeRecipeSteps,
-} from "../helpers/recipeSteps"
 import {
   createMealForUser,
   type CreateMealInput,
 } from "../services/mealCreate"
+import { updateMealForUser } from "../services/mealUpdate"
 
 const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 const User = resolveModule<IUserModel>(require("../models/user"))
-const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
 const FOOD_ITEM_POPULATE = {
   path: "foodItems.foodId",
@@ -89,82 +76,24 @@ export const updateMeal = async (
   res: Response
 ) => {
   try {
-    const { mealId } = req.params
-    const updateData = { ...req.body }
-    const accessQuery = await mealAccessQuery(req.user, mealId)
-
-    const meal = await Meal.findOne(accessQuery)
-    if (!meal) {
+    const result = await updateMealForUser(
+      req.user,
+      req.params.mealId,
+      req.body
+    )
+    if (result.status === "not_found") {
       return res.status(404).json({
         success: false,
-        message: "Meal not found or unauthorized",
+        message: result.message,
       })
     }
-
-    if (updateData.plannedCookingDate !== undefined) {
-      updateData.plannedCookingDate =
-        normalizeMealDate(updateData.plannedCookingDate) ?? undefined
+    if (result.status !== "ok") {
+      return res.status(400).json({
+        success: false,
+        message: result.message,
+      })
     }
-
-    if (updateData.plannedEatingDates !== undefined) {
-      let eatingDates = normalizeMealDates(updateData.plannedEatingDates)
-      const cookingDate =
-        updateData.plannedCookingDate !== undefined
-          ? updateData.plannedCookingDate
-          : meal.plannedCookingDate
-      if (eatingDates.length === 0 && cookingDate) {
-        eatingDates = normalizeMealDates([cookingDate])
-      }
-      updateData.plannedEatingDates = clampEatingDatesToCooking(
-        eatingDates,
-        cookingDate
-      )
-    } else if (updateData.plannedCookingDate !== undefined) {
-      updateData.plannedEatingDates = clampEatingDatesToCooking(
-        normalizeMealDates(meal.plannedEatingDates),
-        updateData.plannedCookingDate
-      )
-    }
-
-    if (updateData.servings !== undefined) {
-      updateData.servings = normalizeServings(updateData.servings)
-    }
-
-    if (updateData.mealCategory !== undefined) {
-      updateData.mealCategory = normalizeMealCategories(updateData.mealCategory)
-    }
-
-    if (updateData.foodItems !== undefined) {
-      const ingredientRows = normalizeMealIngredientInputs(updateData.foodItems)
-      if (ingredientRows.length > 0) {
-        const foodItemIds = ingredientRows.map((row) => row.foodId)
-        const uniqueIds = [...new Set(foodItemIds)]
-        const validFoodItems = await FoodItem.find({
-          _id: { $in: uniqueIds },
-        })
-        if (validFoodItems.length !== uniqueIds.length) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid food items",
-          })
-        }
-      }
-      updateData.foodItems = ingredientRows as CreateMealBody["foodItems"]
-    }
-
-    if (updateData.recipeSteps !== undefined) {
-      const steps = normalizeRecipeSteps(updateData.recipeSteps)
-      updateData.recipeSteps = steps
-      if (steps.length) {
-        updateData.recipe = joinRecipeSteps(steps)
-      }
-    }
-
-    const updatedMeal = await Meal.findOneAndUpdate(accessQuery, updateData, {
-      new: true,
-    }).populate(FOOD_ITEM_POPULATE)
-
-    res.json({ success: true, meal: flattenMealFoodItems(updatedMeal) })
+    res.json({ success: true, meal: result.meal })
   } catch (error: unknown) {
     console.error("Error updating meal:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })
