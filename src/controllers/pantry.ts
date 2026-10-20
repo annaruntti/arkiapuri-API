@@ -1,6 +1,10 @@
 import { Response } from "express"
 import { type Model, Types } from "mongoose"
-import type { IFoodItem, IFoodItemNutrition, IFoodItemOpenFoodFacts } from "../models/foodItem"
+import type {
+  IFoodItem,
+  IFoodItemNutrition,
+  IFoodItemOpenFoodFacts,
+} from "../models/foodItem"
 import type { IPantryItem, IPantryLocation, PantryRemovalReason } from "../models/pantry"
 import {
   AuthenticatedRequest,
@@ -9,17 +13,12 @@ import {
 } from "../helpers/controllerUtils"
 import {
   getCanonicalPantry,
-  mergeDuplicatePantryItems,
-  mergeProcessedPantryItems,
-  pantryItemMergeKey,
-  depopulatePantryFoodIds,
   applyPantryItemExpirationDate,
 } from "../helpers/pantryHelpers"
 import {
   findPantryLocation,
   hydratePantryLocations,
   isPantryLocationType,
-  itemLocationKey,
   locationIdString,
   nextPantryLocationName,
   syncStorageCategoryForLocation,
@@ -27,23 +26,15 @@ import {
 import {
   clearExpiredSuggestionsForItem,
   dismissRemovalSuggestionsForItems,
-  pruneStaleRemovalSuggestions,
   serializeActiveRemovalSuggestions,
-  syncExpiredRemovalSuggestions,
 } from "../helpers/pantrySuggestions"
 import {
-  getHouseholdMemberIds,
-  resolveHouseholdId,
-} from "../helpers/householdHelpers"
-import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
-import { fillFoodItemPriceFromOpenPrices } from "../services/openPrices"
-import {
-  applyPantryScanMetadata,
-  parsePantryQuantity,
   persistPantrySideEffects,
   resolveLocationFromStorageCategories,
   resolvePantryLocationId,
 } from "../services/pantryItemOps"
+import { addFoodItemToPantryForUser } from "../services/pantryAdd"
+import { getPantryForUser } from "../services/pantryGet"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -81,81 +72,8 @@ interface UpdatePantryItemBody {
 
 export const getPantry = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    // Pantry collection is the only source of truth for pantry contents.
-    const pantry = await getCanonicalPantry(req.user)
-    await pantry.populate({ path: "items.foodId" })
-
-    // Normalize units only; do not overwrite names from food items
-    // (that can split same-looking pantry rows into different merge keys).
-    let touched = false
-    for (const item of pantry.items) {
-      const normalizedUnit = normalizeAppUnit(item.unit)
-      if (item.unit !== normalizedUnit) {
-        item.unit = normalizedUnit
-        touched = true
-      }
-      if (!item.name?.trim()) {
-        const foodItemData =
-          item.foodId && typeof item.foodId === "object"
-            ? (item.foodId as unknown as Partial<IFoodItem>)
-            : null
-        if (foodItemData?.name) {
-          item.name = foodItemData.name
-          touched = true
-        }
-      }
-    }
-
-    const hydrated = hydratePantryLocations(pantry)
-    const merged = mergeDuplicatePantryItems(pantry)
-    const pruned = pruneStaleRemovalSuggestions(pantry)
-    const expiredSynced = syncExpiredRemovalSuggestions(pantry)
-    if (hydrated || merged || touched || pruned || expiredSynced) {
-      depopulatePantryFoodIds(pantry)
-      await pantry.save()
-      await pantry.populate({ path: "items.foodId" })
-    }
-
-    const processedItems = mergeProcessedPantryItems(
-      pantry.items.map((item) => {
-        const foodItemData =
-          item.foodId &&
-          typeof item.foodId === "object" &&
-          item.foodId !== null &&
-          "name" in (item.foodId as object)
-            ? (item.foodId as unknown as Partial<IFoodItem>)
-            : {}
-        const raw =
-          typeof item.toObject === "function" ? item.toObject() : { ...item }
-        // Prefer the pantry row's own unit — foodItem.unit may be a package
-        // default (e.g. g) while the row stores what the user bought (e.g. kpl).
-        return {
-          ...raw,
-          name: (item.name || foodItemData.name || "Nimetön tuote").trim(),
-          category: foodItemData.category || item.category || [],
-          unit: normalizeAppUnit(item.unit || foodItemData.unit),
-          calories: foodItemData.calories || item.calories || 0,
-          price: foodItemData.price || item.price || 0,
-          locationId: locationIdString(item.locationId),
-          image:
-            foodItemData.image ||
-            (foodItemData.openFoodFactsData?.imageUrl
-              ? { url: foodItemData.openFoodFactsData.imageUrl }
-              : null),
-        }
-      })
-    )
-
-    const pantryObject = pantry.toObject()
-    res.json({
-      success: true,
-      pantry: {
-        ...pantryObject,
-        items: processedItems,
-        locations: pantryObject.locations || [],
-        removalSuggestions: serializeActiveRemovalSuggestions(pantry),
-      },
-    })
+    const pantry = await getPantryForUser(req.user)
+    res.json({ success: true, pantry })
   } catch (error: unknown) {
     console.error("Error in getPantry:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -171,199 +89,18 @@ export const addFoodItemToPantry = async (
   res: Response
 ) => {
   try {
-    const {
-      name,
-      category,
-      quantity,
-      unit,
-      price,
-      calories,
-      nutrition,
-      expirationDate,
-      expirationDateSetByUser,
-      locationId,
-      foodId,
-      imageUrl,
-      barcode,
-      openFoodFactsData,
-    } = req.body
-
-    if (!name?.trim() && !foodId) {
+    const result = await addFoodItemToPantryForUser(req.user, req.body)
+    if (result.status === "bad_request") {
       return res.status(400).json({
         success: false,
-        message: "Valid item name is required",
+        message: result.message,
       })
     }
-
-    const pantryQty = parsePantryQuantity(quantity)
-    const normalizedName = name?.trim() || ""
-    const householdId = resolveHouseholdId(req.user)
-    const memberIds = householdId
-      ? await getHouseholdMemberIds(householdId)
-      : []
-    const ownerQuery =
-      memberIds.length > 0
-        ? { user: { $in: memberIds } }
-        : { user: req.user._id }
-
-    let foodItem = foodId
-      ? await FoodItem.findOne({ _id: foodId, ...ownerQuery })
-      : null
-
-    // Ignore a stale catalog id when the submitted name is a different product
-    // (e.g. scan matched "Kivennäisvesi", user renamed to "Novelle kivennäisvesi").
-    if (
-      foodItem &&
-      normalizedName &&
-      pantryItemMergeKey(foodItem.name) !== pantryItemMergeKey(normalizedName)
-    ) {
-      foodItem = null
-    }
-
-    if (!foodItem && normalizedName) {
-      foodItem = await FoodItem.findOne({
-        ...ownerQuery,
-        name: new RegExp(
-          `^${normalizedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
-          "i"
-        ),
-      })
-    }
-
-    if (!foodItem) {
-      if (!normalizedName) {
-        return res.status(400).json({
-          success: false,
-          message: "Valid item name is required",
-        })
-      }
-
-      const userPrice = Number(price) > 0 ? Number(price) : 0
-      foodItem = new FoodItem({
-        name: normalizedName,
-        category: category || [],
-        unit: unit || "kpl",
-        price: userPrice,
-        priceSource: userPrice > 0 ? "user" : undefined,
-        calories,
-        nutrition,
-        user: req.user._id,
-        locations: [],
-        quantities: {
-          meal: 0,
-          "shopping-list": 0,
-          pantry: 0,
-        },
-      })
-      applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
-      await fillFoodItemPriceFromOpenPrices(foodItem)
-      await foodItem.save()
-    } else {
-      if (category) foodItem.category = category
-      if (!foodItem.unit && unit) foodItem.unit = unit
-      if (price !== undefined && Number(price) > 0) {
-        foodItem.price = Number(price)
-        foodItem.priceSource = "user"
-      }
-      if (calories !== undefined) foodItem.calories = calories
-      if (nutrition) {
-        foodItem.nutrition = {
-          ...(foodItem.nutrition || {}),
-          ...nutrition,
-        }
-      }
-      applyPantryScanMetadata(foodItem, { imageUrl, barcode, openFoodFactsData, nutrition })
-      await fillFoodItemPriceFromOpenPrices(foodItem)
-      await foodItem.save()
-    }
-
-    const pantry = await getCanonicalPantry(req.user)
-    persistPantrySideEffects(pantry)
-    const rowUnit = normalizeAppUnit(unit || foodItem.unit || "kpl")
-    const displayName = normalizedName || foodItem.name
-    const rowNameKey = pantryItemMergeKey(displayName)
-    let resolvedLocationId = resolvePantryLocationId(pantry, locationId)
-    if (locationId && !resolvedLocationId) {
-      return res.status(400).json({
-        success: false,
-        message: "Säilytyspaikkaa ei löytynyt",
-      })
-    }
-    if (!resolvedLocationId) {
-      resolvedLocationId = resolveLocationFromStorageCategories(pantry, [
-        ...(category || []),
-        ...(foodItem.category || []),
-      ])
-    }
-    const location = findPantryLocation(pantry, resolvedLocationId)
-    const rowCategories = location
-      ? syncStorageCategoryForLocation(foodItem.category, location.type)
-      : foodItem.category
-    if (location && rowCategories.join("\0") !== (foodItem.category || []).join("\0")) {
-      foodItem.category = rowCategories
-      await foodItem.save()
-    }
-    const rowLocationKey = itemLocationKey({
-      locationId: resolvedLocationId,
-    } as IPantryItem)
-    const userSetExpiration =
-      Boolean(expirationDate) || Boolean(expirationDateSetByUser)
-
-    const existingItem = pantry.items.find((item) => {
-      if (normalizeAppUnit(item.unit) !== rowUnit) return false
-      if (itemLocationKey(item) !== rowLocationKey) return false
-      const itemNameKey = pantryItemMergeKey(item.name)
-      if (itemNameKey && itemNameKey === rowNameKey) return true
-      // Same catalog id only when the pantry row has no name of its own.
-      return (
-        !itemNameKey &&
-        Boolean(foodItem._id) &&
-        item.foodId?.toString() === foodItem._id.toString()
-      )
-    })
-
-    if (existingItem) {
-      existingItem.quantity += pantryQty
-      existingItem.unit = rowUnit
-      existingItem.category = rowCategories
-      existingItem.calories = foodItem.calories || 0
-      existingItem.price = foodItem.price || 0
-      existingItem.foodId = foodItem._id
-      existingItem.name = displayName
-      if (resolvedLocationId) {
-        existingItem.locationId = resolvedLocationId as typeof existingItem.locationId
-      }
-      if (expirationDate) {
-        existingItem.expirationDate = new Date(expirationDate)
-        existingItem.expirationDateSetByUser = true
-        clearExpiredSuggestionsForItem(pantry, existingItem._id)
-      }
-    } else {
-      pantry.items.push({
-        foodId: foodItem._id,
-        name: displayName,
-        quantity: pantryQty,
-        unit: rowUnit,
-        category: rowCategories,
-        calories: foodItem.calories || 0,
-        price: foodItem.price || 0,
-        locationId: resolvedLocationId,
-        ...(userSetExpiration && expirationDate
-          ? {
-              expirationDate: new Date(expirationDate),
-              expirationDateSetByUser: true,
-            }
-          : { expirationDateSetByUser: false }),
-        addedFrom: "pantry",
-      } as IPantryItem)
-    }
-
-    await pantry.save()
 
     res.json({
       success: true,
-      pantry,
-      foodItem,
+      pantry: result.pantry,
+      foodItem: result.foodItem,
     })
   } catch (error: unknown) {
     console.error("Error in addFoodItemToPantry:", error)
