@@ -3,7 +3,7 @@ import type { Model } from "mongoose"
 import fs from "fs"
 import cloudinary from "../helpers/imageUpload"
 import type { IFoodItem } from "../models/foodItem"
-import type { IMeal, MealRole } from "../models/meal"
+import type { IMeal } from "../models/meal"
 import type { IUserModel } from "../models/user"
 import {
   AuthenticatedRequest,
@@ -11,10 +11,7 @@ import {
   isCloudinaryConfigured,
   resolveModule,
 } from "../helpers/controllerUtils"
-import {
-  getDataOwnership,
-  getDataQuery,
-} from "../helpers/householdHelpers"
+import { getDataQuery } from "../helpers/householdHelpers"
 import {
   flattenMealFoodItems,
   MEAL_FOOD_CATALOG_SELECT,
@@ -28,10 +25,13 @@ import {
   normalizeServings,
 } from "../helpers/mealDates"
 import {
-  hasRecipeContent,
   joinRecipeSteps,
   normalizeRecipeSteps,
 } from "../helpers/recipeSteps"
+import {
+  createMealForUser,
+  type CreateMealInput,
+} from "../services/mealCreate"
 
 const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 const User = resolveModule<IUserModel>(require("../models/user"))
@@ -42,38 +42,7 @@ const FOOD_ITEM_POPULATE = {
   select: MEAL_FOOD_CATALOG_SELECT,
 }
 
-const VALID_ROLES: MealRole[] = [
-  "breakfast",
-  "lunch",
-  "snack",
-  "dinner",
-  "supper",
-  "dessert",
-  "other",
-]
-
-interface CreateMealBody {
-  name?: string
-  recipe?: string
-  recipeSteps?: string[]
-  difficultyLevel?: "easy" | "medium" | "hard"
-  cookingTime?: number
-  foodItems?: Array<
-    | string
-    | {
-        foodId?: string
-        _id?: string
-        quantity?: number | string
-        unit?: string
-      }
-  >
-  defaultRoles?: string[]
-  mealCategory?: IMeal["mealCategory"] | string
-  plannedCookingDate?: string
-  plannedEatingDates?: string[]
-  servings?: number | string
-  createdAt?: string | Date
-}
+type CreateMealBody = CreateMealInput
 
 const mealAccessQuery = async (
   user: AuthenticatedRequest["user"],
@@ -87,117 +56,14 @@ export const createMeal = async (
   res: Response
 ) => {
   try {
-    const {
-      name,
-      recipe,
-      recipeSteps,
-      difficultyLevel,
-      cookingTime,
-      foodItems,
-      defaultRoles,
-      mealCategory,
-      plannedCookingDate,
-      plannedEatingDates,
-      servings,
-      createdAt,
-    } = req.body
-
-    const steps = normalizeRecipeSteps(recipeSteps)
-    const recipeText = steps.length ? joinRecipeSteps(steps) : String(recipe || "").trim()
-
-    if (!name || !hasRecipeContent(steps, recipeText)) {
+    const result = await createMealForUser(req.user, req.body)
+    if (result.status !== "ok") {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields",
+        message: result.message,
       })
     }
-
-    if (plannedCookingDate && !normalizeMealDate(plannedCookingDate)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid plannedCookingDate format",
-      })
-    }
-
-    const cookingDate = normalizeMealDate(plannedCookingDate)
-    let validatedEatingDates = normalizeMealDates(plannedEatingDates)
-    if (validatedEatingDates.length === 0 && cookingDate) {
-      validatedEatingDates = [cookingDate]
-    }
-    validatedEatingDates = clampEatingDatesToCooking(
-      validatedEatingDates,
-      cookingDate
-    )
-
-    const ingredientRows = normalizeMealIngredientInputs(foodItems)
-
-    if (ingredientRows.length > 0) {
-      const foodItemIds = ingredientRows.map((row) => row.foodId)
-      const uniqueIds = [...new Set(foodItemIds)]
-      const validFoodItems = await FoodItem.find({
-        _id: { $in: uniqueIds },
-      })
-
-      if (validFoodItems.length !== uniqueIds.length) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid food items",
-        })
-      }
-    }
-
-    if (
-      !defaultRoles ||
-      !Array.isArray(defaultRoles) ||
-      defaultRoles.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "defaultRoles must be a non-empty array",
-      })
-    }
-
-    const invalidRoles = defaultRoles.filter(
-      (role) => !VALID_ROLES.includes(role as MealRole)
-    )
-    if (invalidRoles.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid roles found: ${invalidRoles.join(
-          ", "
-        )}. Allowed roles are: ${VALID_ROLES.join(", ")}`,
-      })
-    }
-
-    const ownership = getDataOwnership(req.user)
-    const meal = new Meal({
-      name,
-      recipe: recipeText,
-      recipeSteps: steps,
-      difficultyLevel,
-      cookingTime,
-      foodItems: ingredientRows,
-      defaultRoles,
-      mealCategory: normalizeMealCategories(mealCategory),
-      plannedCookingDate: cookingDate,
-      plannedEatingDates: validatedEatingDates,
-      servings: normalizeServings(servings),
-      user: ownership.userId,
-      household: ownership.household,
-      createdAt,
-    })
-
-    await meal.save()
-
-    await User.findByIdAndUpdate(req.user._id, {
-      $push: { meals: meal._id },
-    })
-
-    const populatedMeal = await Meal.findById(meal._id).populate(
-      FOOD_ITEM_POPULATE
-    )
-
-    res.json({ success: true, meal: flattenMealFoodItems(populatedMeal) })
+    res.json({ success: true, meal: result.meal })
   } catch (error: unknown) {
     console.error("Error creating meal:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })
