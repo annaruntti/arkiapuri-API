@@ -1,7 +1,6 @@
 import { Response } from "express"
-import { type Model, Types } from "mongoose"
+import { Types } from "mongoose"
 import type {
-  IFoodItem,
   IFoodItemNutrition,
   IFoodItemOpenFoodFacts,
 } from "../models/foodItem"
@@ -9,12 +8,8 @@ import type { IPantryItem, IPantryLocation, PantryRemovalReason } from "../model
 import {
   AuthenticatedRequest,
   getErrorMessage,
-  resolveModule,
 } from "../helpers/controllerUtils"
-import {
-  getCanonicalPantry,
-  applyPantryItemExpirationDate,
-} from "../helpers/pantryHelpers"
+import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import {
   findPantryLocation,
   hydratePantryLocations,
@@ -24,19 +19,13 @@ import {
   syncStorageCategoryForLocation,
 } from "../helpers/pantryLocations"
 import {
-  clearExpiredSuggestionsForItem,
   dismissRemovalSuggestionsForItems,
   serializeActiveRemovalSuggestions,
 } from "../helpers/pantrySuggestions"
-import {
-  persistPantrySideEffects,
-  resolveLocationFromStorageCategories,
-  resolvePantryLocationId,
-} from "../services/pantryItemOps"
+import { persistPantrySideEffects } from "../services/pantryItemOps"
 import { addFoodItemToPantryForUser } from "../services/pantryAdd"
 import { getPantryForUser } from "../services/pantryGet"
-
-const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
+import { updatePantryItemForUser } from "../services/pantryUpdate"
 
 interface AddFoodItemToPantryBody {
   name?: string
@@ -113,116 +102,21 @@ export const updatePantryItem = async (
   res: Response
 ) => {
   try {
-    const { itemId } = req.params
-    const update = { ...req.body }
+    const result = await updatePantryItemForUser(
+      req.user,
+      req.params.itemId,
+      req.body
+    )
 
-    const pantry = await getCanonicalPantry(req.user)
-    const item = (pantry.items as Types.DocumentArray<IPantryItem>).id(itemId)
-
-    if (!item) {
-      return res.status(404).json({
+    if (result.status !== "ok") {
+      const statusCode = result.status === "not_found" ? 404 : 400
+      return res.status(statusCode).json({
         success: false,
-        message: "Item not found in pantry",
+        message: result.message,
       })
     }
 
-    if (
-      update.foodId &&
-      typeof update.foodId === "object" &&
-      update.foodId._id
-    ) {
-      item.foodId = update.foodId._id as unknown as typeof item.foodId
-      delete update.foodId
-    }
-
-    if (update.image) {
-      delete update.image
-    }
-
-    if (update.locationId !== undefined) {
-      if (!update.locationId) {
-        item.locationId = null
-      } else {
-        const resolvedLocationId = resolvePantryLocationId(
-          pantry,
-          update.locationId
-        )
-        if (!resolvedLocationId) {
-          return res.status(400).json({
-            success: false,
-            message: "Säilytyspaikkaa ei löytynyt",
-          })
-        }
-        item.locationId = resolvedLocationId as typeof item.locationId
-        const location = findPantryLocation(pantry, resolvedLocationId)
-        if (location) {
-          const nextCategories = syncStorageCategoryForLocation(
-            Array.isArray(update.category)
-              ? update.category
-              : item.category,
-            location.type
-          )
-          item.category = nextCategories
-          update.category = nextCategories
-        }
-      }
-      delete update.locationId
-    } else if (update.category !== undefined) {
-      const inferredLocationId = resolveLocationFromStorageCategories(
-        pantry,
-        Array.isArray(update.category) ? update.category : []
-      )
-      if (inferredLocationId) {
-        item.locationId = inferredLocationId as typeof item.locationId
-      }
-    }
-
-    if (update.expirationDate !== undefined) {
-      applyPantryItemExpirationDate(item, update.expirationDate)
-      clearExpiredSuggestionsForItem(pantry, item._id)
-      delete update.expirationDate
-      delete update.expirationDateSetByUser
-    } else if (update.expirationDateSetByUser !== undefined) {
-      item.expirationDateSetByUser = Boolean(update.expirationDateSetByUser)
-      delete update.expirationDateSetByUser
-    }
-
-    Object.assign(item, update)
-    persistPantrySideEffects(pantry)
-    await pantry.save()
-
-    if (item.foodId) {
-      const foodItemUpdate: Partial<IFoodItem> = {}
-
-      if (update.category !== undefined) {
-        foodItemUpdate.category = Array.isArray(update.category)
-          ? update.category.map((cat) => String(cat))
-          : []
-      }
-      if (update.name !== undefined) foodItemUpdate.name = update.name
-      if (update.unit !== undefined) foodItemUpdate.unit = update.unit
-      if (update.price !== undefined) foodItemUpdate.price = update.price
-      if (update.calories !== undefined) {
-        foodItemUpdate.calories = update.calories
-      }
-
-      if (Object.keys(foodItemUpdate).length > 0) {
-        const foodItemId =
-          typeof item.foodId === "object" &&
-          item.foodId !== null &&
-          "_id" in item.foodId
-            ? (item.foodId as unknown as { _id: string })._id
-            : item.foodId
-
-        await FoodItem.findByIdAndUpdate(foodItemId, foodItemUpdate, {
-          new: true,
-        })
-      }
-    }
-
-    await pantry.populate({ path: "items.foodId" })
-
-    res.json({ success: true, pantry })
+    res.json({ success: true, pantry: result.pantry })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
