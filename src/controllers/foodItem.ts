@@ -1,11 +1,8 @@
 import { Response } from "express"
 import type { FilterQuery, Model } from "mongoose"
-import cloudinary from "../helpers/imageUpload"
-import fs from "fs"
 import type { IFoodItem, FoodLocation } from "../models/foodItem"
-import type { IPantryItem } from "../models/pantry"
 import type { IShoppingList } from "../models/shoppingList"
-import type { IUser, IUserModel } from "../models/user"
+import type { IUserModel } from "../models/user"
 import {
   AuthenticatedRequest,
   getErrorMessage,
@@ -16,20 +13,26 @@ import {
   getHouseholdMemberIds,
   resolveHouseholdId,
 } from "../helpers/householdHelpers"
-import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import { lookupFoodsByName, toCatalogFoodMatch } from "../services/foodNameLookup"
 import { checkFoodItemAvailabilityForUser } from "../services/checkFoodItemAvailability"
 import { findOrCreateFoodItemForUser } from "../services/findOrCreateFoodItem"
 import {
+  removeFoodItemImageFile,
+  uploadFoodItemImageFile,
+} from "../services/foodItemImage"
+import {
+  moveFoodItemQuantity,
+  updateFoodItemQuantity,
+  type QuantityAction,
+} from "../services/foodItemQuantity"
+import {
   CATALOG_UPDATE_KEYS,
   EMPTY_QUANTITIES,
-  FOOD_LOCATIONS,
   normalizeNutrition,
   resolveIsFood,
   sanitizeFoodFields,
 } from "../services/foodItemFields"
 import type { IMeal } from "../models/meal"
-import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 const User = resolveModule<IUserModel>(require("../models/user"))
@@ -83,12 +86,10 @@ interface FindOrCreateFoodItemBody {
   quantities?: FoodItemQuantitiesInput
 }
 
-type UpdateQuantityAction = "add" | "subtract" | "set"
-
 interface UpdateQuantityBody {
   location: FoodLocation
   quantity: number
-  action?: UpdateQuantityAction
+  action?: QuantityAction
 }
 
 interface MoveItemBody {
@@ -100,11 +101,6 @@ interface MoveItemBody {
 interface CheckItemAvailabilityBody {
   name?: string
   foodId?: string
-}
-
-interface CloudinaryUploadResult {
-  secure_url: string
-  public_id: string
 }
 
 interface FoodItemApiResponse {
@@ -355,89 +351,25 @@ export const updateQuantity = async (
   try {
     const { foodItemId } = req.params
     const { location, quantity, action = "set" } = req.body
+    const result = await updateFoodItemQuantity(
+      req.user,
+      foodItemId,
+      location,
+      quantity,
+      action
+    )
 
-    if (!FOOD_LOCATIONS.includes(location)) {
+    if (result.status === "bad_request") {
       return res.status(400).json({
         success: false,
-        message: "Invalid location",
+        message: result.message,
       })
     }
-
-    const foodItem = await FoodItem.findOne({
-      _id: foodItemId,
-      user: req.user._id,
-    })
-
-    if (!foodItem) {
-      return res.status(400).json({
-        success: false,
-        message: "Food item not found",
-      })
-    }
-
-    if (location === "pantry") {
-      const pantry = await getCanonicalPantry(req.user)
-      const row = pantry.items.find(
-        (item) => String(item.foodId) === String(foodItem._id)
-      )
-      if (!row) {
-        return res.status(400).json({
-          success: false,
-          message: "Item not found in pantry",
-        })
-      }
-
-      switch (action) {
-        case "add":
-          row.quantity += quantity
-          break
-        case "subtract":
-          row.quantity = Math.max(0, row.quantity - quantity)
-          break
-        case "set":
-          row.quantity = Math.max(0, quantity)
-          break
-        default:
-          return res.status(400).json({
-            success: false,
-            message: "Invalid action",
-          })
-      }
-
-      await pantry.save()
-      return res.json({
-        success: true,
-        foodItem,
-        message: `Quantity ${action}ed in pantry`,
-      })
-    }
-
-    switch (action) {
-      case "add":
-        foodItem.quantities[location] += quantity
-        break
-      case "subtract":
-        foodItem.quantities[location] = Math.max(
-          0,
-          foodItem.quantities[location] - quantity
-        )
-        break
-      case "set":
-        foodItem.quantities[location] = Math.max(0, quantity)
-        break
-      default:
-        return res.status(400).json({
-          success: false,
-          message: "Invalid action",
-        })
-    }
-
-    await foodItem.save()
 
     res.json({
       success: true,
-      foodItem,
-      message: `Quantity ${action}ed in ${location}`,
+      foodItem: result.foodItem,
+      message: result.message,
     })
   } catch (error: unknown) {
     res.status(400).json({
@@ -458,121 +390,26 @@ export const moveItem = async (
   try {
     const { foodItemId } = req.params
     const { fromLocation, toLocation, quantity } = req.body
+    const result = await moveFoodItemQuantity(
+      req.user,
+      foodItemId,
+      fromLocation,
+      toLocation,
+      quantity
+    )
 
-    if (
-      !FOOD_LOCATIONS.includes(fromLocation) ||
-      !FOOD_LOCATIONS.includes(toLocation)
-    ) {
-      return res.status(400).json({
+    if (result.status === "bad_request") {
+      const status = result.message === "Pantry not available" ? 500 : 400
+      return res.status(status).json({
         success: false,
-        message: "Invalid location",
+        message: result.message,
       })
     }
-
-    if (fromLocation === toLocation) {
-      return res.status(400).json({
-        success: false,
-        message: "Source and destination must be different",
-      })
-    }
-
-    const foodItem = await FoodItem.findOne({
-      _id: foodItemId,
-      user: req.user._id,
-    })
-
-    if (!foodItem) {
-      return res.status(400).json({
-        success: false,
-        message: "Food item not found",
-      })
-    }
-
-    const usesPantry = fromLocation === "pantry" || toLocation === "pantry"
-    const pantry = usesPantry ? await getCanonicalPantry(req.user) : null
-
-    if (usesPantry && !pantry) {
-      return res.status(500).json({
-        success: false,
-        message: "Pantry not available",
-      })
-    }
-
-    if (fromLocation === "pantry") {
-      if (!pantry) {
-        return res.status(500).json({
-          success: false,
-          message: "Pantry not available",
-        })
-      }
-      const row = pantry.items.find(
-        (item) => String(item.foodId) === String(foodItem._id)
-      )
-      if (!row) {
-        return res.status(400).json({
-          success: false,
-          message: "Item not found in pantry",
-        })
-      }
-      const available = Number(row.quantity) || 0
-      if (available < quantity) {
-        return res.status(400).json({
-          success: false,
-          message: "Not enough quantity in pantry",
-        })
-      }
-      row.quantity = available - quantity
-    } else if (foodItem.quantities[fromLocation] < quantity) {
-      return res.status(400).json({
-        success: false,
-        message: `Not enough quantity in ${fromLocation}`,
-      })
-    } else {
-      foodItem.quantities[fromLocation] -= quantity
-    }
-
-    if (toLocation === "pantry") {
-      if (!pantry) {
-        return res.status(500).json({
-          success: false,
-          message: "Pantry not available",
-        })
-      }
-      const row = pantry.items.find(
-        (item) => String(item.foodId) === String(foodItem._id)
-      )
-      if (row) {
-        row.quantity = (Number(row.quantity) || 0) + quantity
-      } else {
-        pantry.items.push({
-          foodId: foodItem._id,
-          name: foodItem.name,
-          quantity,
-          unit: foodItem.unit || "kpl",
-          category: foodItem.category || [],
-          calories: foodItem.calories || 0,
-          price: foodItem.price || 0,
-          addedFrom: "pantry",
-        } as IPantryItem)
-      }
-    } else {
-      foodItem.quantities[toLocation] += quantity
-    }
-
-    // Catalog must not keep pantry stock; that lives on the Pantry document.
-    if (usesPantry) {
-      foodItem.quantities.pantry = 0
-    }
-
-    if (pantry) {
-      await pantry.save()
-    }
-    await foodItem.save()
 
     res.json({
       success: true,
-      foodItem,
-      message: `Moved ${quantity} from ${fromLocation} to ${toLocation}`,
+      foodItem: result.foodItem,
+      message: result.message,
     })
   } catch (error: unknown) {
     res.status(400).json({
@@ -589,70 +426,28 @@ export const uploadFoodItemImage = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "No image file provided",
-      })
+    const result = await uploadFoodItemImageFile(
+      req.user._id,
+      req.params.foodItemId,
+      req.file
+    )
+
+    if (result.status !== "ok") {
+      const statusCode =
+        result.status === "not_found"
+          ? 404
+          : result.status === "server_error"
+            ? 500
+            : 400
+      return res
+        .status(statusCode)
+        .json({ success: false, message: result.message })
     }
 
-    const { foodItemId } = req.params
-
-    const foodItem = await FoodItem.findOne({
-      _id: foodItemId,
-      user: req.user._id,
+    res.json({
+      success: true,
+      foodItem: result.foodItem,
     })
-
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found or unauthorized",
-      })
-    }
-
-    if (
-      !process.env.CLOUDINARY_USER_NAME ||
-      !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_KEY_SECRET
-    ) {
-      return res.status(500).json({
-        success: false,
-        message: "Cloud storage not configured",
-      })
-    }
-
-    try {
-      const result: CloudinaryUploadResult = await cloudinary.uploader.upload(
-        req.file.path,
-        {
-          folder: "food-item-images",
-          use_filename: true,
-        }
-      )
-
-      const updatedFoodItem = await FoodItem.findByIdAndUpdate(
-        foodItemId,
-        {
-          image: {
-            url: result.secure_url,
-            publicId: result.public_id,
-          },
-        },
-        { new: true }
-      )
-
-      fs.unlinkSync(req.file.path)
-
-      res.json({
-        success: true,
-        foodItem: updatedFoodItem,
-      })
-    } catch (uploadError: unknown) {
-      if (req.file.path && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path)
-      }
-      throw uploadError
-    }
   } catch (error: unknown) {
     console.error("Upload error:", error)
     res.status(500).json({
@@ -791,55 +586,27 @@ export const removeFoodItemImage = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const { foodItemId } = req.params
+    const result = await removeFoodItemImageFile(
+      req.user._id,
+      req.params.foodItemId
+    )
 
-    const foodItem = await FoodItem.findOne({
-      _id: foodItemId,
-      user: req.user._id,
+    if (result.status !== "ok") {
+      const statusCode =
+        result.status === "not_found"
+          ? 404
+          : result.status === "server_error"
+            ? 500
+            : 400
+      return res
+        .status(statusCode)
+        .json({ success: false, message: result.message })
+    }
+
+    res.json({
+      success: true,
+      foodItem: result.foodItem,
     })
-
-    if (!foodItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found or unauthorized",
-      })
-    }
-
-    if (!foodItem.image?.publicId) {
-      return res.status(400).json({
-        success: false,
-        message: "No image to remove",
-      })
-    }
-
-    if (
-      !process.env.CLOUDINARY_USER_NAME ||
-      !process.env.CLOUDINARY_API_KEY ||
-      !process.env.CLOUDINARY_API_KEY_SECRET
-    ) {
-      return res.status(500).json({
-        success: false,
-        message: "Cloud storage not configured",
-      })
-    }
-
-    try {
-      await cloudinary.uploader.destroy(foodItem.image.publicId)
-
-      const updatedFoodItem = await FoodItem.findByIdAndUpdate(
-        foodItemId,
-        { $unset: { image: 1 } },
-        { new: true }
-      )
-
-      res.json({
-        success: true,
-        foodItem: updatedFoodItem,
-      })
-    } catch (deleteError: unknown) {
-      console.error("Error deleting from Cloudinary:", deleteError)
-      throw deleteError
-    }
   } catch (error: unknown) {
     console.error("Remove image error:", error)
     res.status(500).json({

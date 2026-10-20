@@ -22,6 +22,12 @@ import {
   normalizeMealIngredientInputs,
 } from "../helpers/mealIngredients"
 import {
+  clampEatingDatesToCooking,
+  normalizeMealDate,
+  normalizeMealDates,
+  normalizeServings,
+} from "../helpers/mealDates"
+import {
   hasRecipeContent,
   joinRecipeSteps,
   normalizeRecipeSteps,
@@ -75,59 +81,6 @@ const mealAccessQuery = async (
 ) => ({
   $and: [{ _id: mealId }, await getDataQuery(user, "user")],
 })
-
-const toCalendarDayKey = (value?: string | Date | null): string | null => {
-  if (value == null || value === "") return null
-  const raw = typeof value === "string" ? value.trim() : ""
-  const dayOnly = raw.match(/^(\d{4}-\d{2}-\d{2})/)
-  if (dayOnly && (raw.length === 10 || /T00:00:00/.test(raw))) {
-    return dayOnly[1]
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toISOString().slice(0, 10)
-}
-
-const toUtcMidnight = (dayKey: string): string => `${dayKey}T00:00:00.000Z`
-
-const normalizeMealDate = (value?: string | Date | null): string | null => {
-  const day = toCalendarDayKey(value)
-  return day ? toUtcMidnight(day) : null
-}
-
-const normalizeMealDates = (values?: Array<string | Date> | null): string[] => {
-  if (!Array.isArray(values)) return []
-  return [
-    ...new Set(
-      values
-        .map((value) => normalizeMealDate(value))
-        .filter((value): value is string => Boolean(value))
-    ),
-  ]
-}
-
-const clampEatingDatesToCooking = (
-  eatingDates: string[],
-  cookingDate?: string | Date | null
-): string[] => {
-  const cookingKey = toCalendarDayKey(cookingDate)
-  if (!cookingKey) return eatingDates
-  return [
-    ...new Set(
-      eatingDates.map((date) => {
-        const day = toCalendarDayKey(date)
-        if (!day) return date
-        return day < cookingKey ? toUtcMidnight(cookingKey) : date
-      })
-    ),
-  ]
-}
-
-const normalizeServings = (value: unknown): number => {
-  const parsed = parseInt(String(value ?? ""), 10)
-  if (!Number.isFinite(parsed) || parsed < 1) return 4
-  return parsed
-}
 
 export const createMeal = async (
   req: AuthenticatedRequest<Record<string, string>, unknown, CreateMealBody>,
