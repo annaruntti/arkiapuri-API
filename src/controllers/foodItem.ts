@@ -13,7 +13,7 @@ import {
   getHouseholdMemberIds,
   resolveHouseholdId,
 } from "../helpers/householdHelpers"
-import { lookupFoodsByName, toCatalogFoodMatch } from "../services/foodNameLookup"
+import { lookupFoodItemsByNameForUser } from "../services/foodItemLookupByName"
 import { checkFoodItemAvailabilityForUser } from "../services/checkFoodItemAvailability"
 import { findOrCreateFoodItemForUser } from "../services/findOrCreateFoodItem"
 import {
@@ -379,41 +379,14 @@ export const lookupFoodItemsByName = async (
   res: Response
 ) => {
   try {
-    const names = Array.isArray(req.body?.names)
-      ? req.body.names
-      : req.body?.name
-        ? [req.body.name]
-        : []
-    const cleaned = names
-      .map((name) => String(name || "").trim())
-      .filter(Boolean)
-
-    if (cleaned.length === 0) {
+    const result = await lookupFoodItemsByNameForUser(req.user, req.body)
+    if (result.status !== "ok") {
       return res.status(400).json({
         success: false,
-        message: "Tuotenimi puuttuu",
+        message: result.message,
       })
     }
-
-    const householdId = resolveHouseholdId(req.user)
-    const memberIds = householdId
-      ? await getHouseholdMemberIds(householdId)
-      : []
-    const catalogQuery =
-      memberIds.length > 0
-        ? { user: { $in: memberIds } }
-        : { user: req.user._id }
-
-    const catalogDocs = await FoodItem.find(catalogQuery)
-      .select("name category unit calories nutrition image openFoodFactsData")
-      .lean()
-
-    const results = await lookupFoodsByName(
-      cleaned,
-      catalogDocs.map(toCatalogFoodMatch)
-    )
-
-    res.json({ success: true, results })
+    res.json({ success: true, results: result.results })
   } catch (error: unknown) {
     console.error("Error in lookupFoodItemsByName:", error)
     res.status(500).json({

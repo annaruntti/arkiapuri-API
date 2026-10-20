@@ -7,15 +7,9 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
-import {
-  getDataOwnership,
-  getDataQuery,
-} from "../helpers/householdHelpers"
+import { getDataQuery } from "../helpers/householdHelpers"
 import { estimateShoppingListItems } from "../services/priceEstimateService"
-import {
-  positivePrice,
-  shoppingListDisplayTotal,
-} from "../services/priceEstimate"
+import { positivePrice } from "../services/priceEstimate"
 import { moveShoppingListItemsToPantry } from "../services/moveShoppingListToPantry"
 import {
   FOOD_ITEM_SELECT,
@@ -23,7 +17,6 @@ import {
   shoppingListAccessQuery,
   type ShoppingListItemInput,
 } from "../services/shoppingListItemMapping"
-import { prepareShoppingListItemsForAdd } from "../services/shoppingListItemOps"
 import { setShoppingListItemBoughtForUser } from "../services/shoppingListBought"
 import {
   deleteShoppingListItemForUser,
@@ -31,6 +24,7 @@ import {
 } from "../services/shoppingListItemMutations"
 import { updateShoppingListForUser } from "../services/shoppingListUpdate"
 import { addItemsToShoppingListForUser } from "../services/shoppingListAddItems"
+import { createShoppingListForUser } from "../services/shoppingListCreate"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -53,32 +47,14 @@ export const createShoppingList = async (
   res: Response
 ) => {
   try {
-    const { name, description, items, totalEstimatedPrice } = req.body
-
-    if (!name || !Array.isArray(items)) {
+    const result = await createShoppingListForUser(req.user, req.body)
+    if (result.status !== "ok") {
       return res.status(400).json({
         success: false,
-        message: "Name and items are required",
+        message: result.message,
       })
     }
-
-    const ownership = getDataOwnership(req.user)
-    const mappedItems = await prepareShoppingListItemsForAdd(req.user, items)
-    const shoppingList = new ShoppingList({
-      userId: ownership.userId,
-      household: ownership.household,
-      name,
-      description,
-      items: mappedItems,
-      totalEstimatedPrice: shoppingListDisplayTotal(
-        mappedItems,
-        totalEstimatedPrice
-      ),
-    })
-
-    await shoppingList.save()
-
-    res.json({ success: true, shoppingList })
+    res.json({ success: true, shoppingList: result.shoppingList })
   } catch (error: unknown) {
     console.error("Error creating shopping list:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })
