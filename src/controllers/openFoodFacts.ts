@@ -7,10 +7,10 @@ import {
   resolveModule,
 } from "../helpers/controllerUtils"
 import openFoodFactsService from "../services/openFoodFactsService"
+import { addOpenFoodFactsToFoodItems } from "../services/openFoodFactsAdd"
 import {
   applyMappedOpenFoodFactsToFoodItem,
   mapOpenFoodFactsToFoodItemFields,
-  normalizeAppUnit,
 } from "../utils/openFoodFactsMapper"
 import { fillFoodItemPriceFromOpenPrices } from "../services/openPrices"
 
@@ -253,133 +253,32 @@ export const addToFoodItems = async (
   res: Response
 ) => {
   try {
-    const { barcode } = req.params
-    const {
-      location = "shopping-list",
-      quantity = 1,
-      unit = "pcs",
-      shoppingListId = null,
-      mealId = null,
-    } = req.body
-
-    if (!barcode) {
-      return res.status(400).json({
-        success: false,
-        message: "Barcode is required",
-      })
-    }
-
-    if (!["meal", "shopping-list", "pantry"].includes(location)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid location",
-      })
-    }
-
-    const cleanBarcode = openFoodFactsService.cleanBarcode(barcode)
-    const offProduct = await openFoodFactsService.searchByBarcode(cleanBarcode)
-
-    if (!offProduct) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found in Open Food Facts database",
-      })
-    }
-
-    const existingFoodItem = await FoodItem.findOne({
-      user: req.user._id,
-      name: offProduct.name,
+    const result = await addOpenFoodFactsToFoodItems(req.user, {
+      barcode: req.params.barcode,
+      location: req.body.location,
+      quantity: req.body.quantity,
+      unit: req.body.unit,
+      shoppingListId: req.body.shoppingListId,
+      mealId: req.body.mealId,
     })
 
-    const mapped = mapOpenFoodFactsToFoodItemFields(offProduct)
-    // FoodItem always keeps the OFF package size (e.g. 400 g). Shopping-list
-    // rows count packages in kpl so two scans become "2 kpl", not "800 g".
-    const foodUnit = mapped.unit || normalizeAppUnit(unit)
-    const foodPackageQuantity =
-      Number(mapped.packageQuantity) > 0 ? Number(mapped.packageQuantity) : 1
-    const clientSentDefaultUnit = !unit || unit === "pcs" || unit === "kpl"
-    const requestedQuantity = parseFloat(String(quantity))
-    const hasValidRequestedQuantity =
-      Number.isFinite(requestedQuantity) && requestedQuantity > 0
-    const packagedProduct = foodUnit !== "kpl" && foodPackageQuantity > 0
-
-    let collectionUnit: string
-    let collectionQuantity: number
-    if (location === "shopping-list" && packagedProduct) {
-      collectionUnit = "kpl"
-      collectionQuantity = hasValidRequestedQuantity ? requestedQuantity : 1
-    } else {
-      // Client search hits often lack product_quantity and misparse labels like
-      // "4 kpl, 350 g" as 4 kpl. This endpoint re-fetches by barcode, so its
-      // mapped package size is authoritative whenever the client only sent a
-      // default piece unit (kpl/pcs) while OFF has a real mass/volume package.
-      const preferOffPackage =
-        clientSentDefaultUnit &&
-        (mapped.unit !== "kpl" ||
-          !hasValidRequestedQuantity ||
-          requestedQuantity === 1)
-      collectionUnit = preferOffPackage ? mapped.unit : normalizeAppUnit(unit)
-      collectionQuantity = preferOffPackage
-        ? mapped.packageQuantity
-        : hasValidRequestedQuantity
-          ? requestedQuantity
-          : mapped.packageQuantity || 1
-    }
-
-    if (existingFoodItem) {
-      applyMappedOpenFoodFactsToFoodItem(existingFoodItem, mapped, "merge")
-      await fillFoodItemPriceFromOpenPrices(existingFoodItem)
-
-      await existingFoodItem.save()
-
-      return res.json({
-        success: true,
-        message: "Product quantity updated",
-        foodItem: existingFoodItem,
-        fromOpenFoodFacts: true,
-        collectionData: {
-          location,
-          quantity: collectionQuantity,
-          unit: collectionUnit,
-          shoppingListId,
-          mealId,
-        },
+    if (result.status !== "ok") {
+      const statusCode = result.status === "not_found" ? 404 : 400
+      return res.status(statusCode).json({
+        success: false,
+        message: result.message,
       })
     }
-
-    const foodItemData = {
-      name: mapped.name,
-      category: mapped.category,
-      unit: foodUnit,
-      packageQuantity: foodPackageQuantity,
-      calories: mapped.calories,
-      user: req.user._id,
-      image: mapped.image,
-      quantities: {
-        meal: 0,
-        "shopping-list": 0,
-        pantry: 0,
-      },
-      openFoodFactsData: mapped.openFoodFactsData,
-    }
-
-    const foodItem = new FoodItem(foodItemData)
-    await fillFoodItemPriceFromOpenPrices(foodItem)
-    await foodItem.save()
 
     res.json({
       success: true,
-      message: "Product added from Open Food Facts",
-      foodItem,
-      fromOpenFoodFacts: true,
-      openFoodFactsData: offProduct,
-      collectionData: {
-        location,
-        quantity: collectionQuantity,
-        unit: collectionUnit,
-        shoppingListId,
-        mealId,
-      },
+      message: result.message,
+      foodItem: result.foodItem,
+      fromOpenFoodFacts: result.fromOpenFoodFacts,
+      ...(result.openFoodFactsData
+        ? { openFoodFactsData: result.openFoodFactsData }
+        : {}),
+      collectionData: result.collectionData,
     })
   } catch (error: unknown) {
     console.error("Error in addToFoodItems:", error)
