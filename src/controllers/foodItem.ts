@@ -25,12 +25,7 @@ import {
   updateFoodItemQuantity,
   type QuantityAction,
 } from "../services/foodItemQuantity"
-import {
-  EMPTY_QUANTITIES,
-  normalizeNutrition,
-  resolveIsFood,
-  sanitizeFoodFields,
-} from "../services/foodItemFields"
+import { createFoodItemForUser } from "../services/foodItemCreate"
 import { updateFoodItemForUser } from "../services/foodItemUpdate"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -128,52 +123,14 @@ export const createFoodItem = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const {
-      name,
-      isFood: isFoodBody,
-      category,
-      price,
-      calories,
-      nutrition,
-      expirationDate,
-      unit,
-    } = req.body
-
-    const isFood = resolveIsFood(isFoodBody, true)
-    const nutritionFields = normalizeNutrition(nutrition, calories)
-    const safeFields = sanitizeFoodFields(
-      {
-        category,
-        calories: nutritionFields.calories,
-        nutrition: nutritionFields.nutrition,
-        expirationDate,
-      },
-      isFood
-    )
-
-    const userPrice = Number(price) > 0 ? Number(price) : 0
-    const foodItem = new FoodItem({
-      name,
-      isFood,
-      category: safeFields.category || [],
-      price: userPrice || price,
-      priceSource: userPrice > 0 ? "user" : undefined,
-      calories: safeFields.calories,
-      nutrition: safeFields.nutrition,
-      user: req.user._id,
-      expirationDate: safeFields.expirationDate,
-      locations: [],
-      quantities: { ...EMPTY_QUANTITIES },
-      unit: unit || "kpl",
-    })
-
-    await foodItem.save()
-
-    await User.findByIdAndUpdate(req.user._id, {
-      $push: { foodItems: foodItem._id },
-    })
-
-    res.json({ success: true, foodItem })
+    const result = await createFoodItemForUser(req.user, req.body)
+    if (result.status !== "ok") {
+      return res.status(400).json({
+        success: false,
+        message: result.message,
+      })
+    }
+    res.json({ success: true, foodItem: result.foodItem })
   } catch (error: unknown) {
     console.error("Error creating food item:", error)
     res.status(400).json({ success: false, error: getErrorMessage(error) })

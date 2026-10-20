@@ -1,7 +1,7 @@
 import { Response } from "express"
 import type { Model } from "mongoose"
 import type { IFoodItem } from "../models/foodItem"
-import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
+import type { IShoppingList } from "../models/shoppingList"
 import {
   AuthenticatedRequest,
   getErrorMessage,
@@ -11,10 +11,7 @@ import {
   getDataOwnership,
   getDataQuery,
 } from "../helpers/householdHelpers"
-import {
-  applyEstimatesToShoppingItems,
-  estimateShoppingListItems,
-} from "../services/priceEstimateService"
+import { estimateShoppingListItems } from "../services/priceEstimateService"
 import {
   positivePrice,
   shoppingListDisplayTotal,
@@ -22,7 +19,6 @@ import {
 import { moveShoppingListItemsToPantry } from "../services/moveShoppingListToPantry"
 import {
   FOOD_ITEM_SELECT,
-  mapShoppingListItem,
   mergeFoodIdIntoItems,
   shoppingListAccessQuery,
   type ShoppingListItemInput,
@@ -33,6 +29,7 @@ import {
   deleteShoppingListItemForUser,
   updateShoppingListItemForUser,
 } from "../services/shoppingListItemMutations"
+import { updateShoppingListForUser } from "../services/shoppingListUpdate"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -121,61 +118,20 @@ export const updateShoppingList = async (
   res: Response
 ) => {
   try {
-    const { id } = req.params
-    const { items, totalEstimatedPrice } = req.body
-    const query = await shoppingListAccessQuery(req.user, id)
-
-    const existingList = await ShoppingList.findOne(query)
-    if (!existingList) {
-      return res.status(404).json({
-        success: false,
-        message: "Shopping list not found or unauthorized",
-      })
-    }
-
-    if (items) {
-      existingList.items = items.map(mapShoppingListItem) as IShoppingListItem[]
-      await applyEstimatesToShoppingItems(req.user, existingList.items)
-      // A duplicate collapse sends line totals already scaled to the merged
-      // quantity. Keep those instead of a fresh single-package estimate.
-      items.forEach((raw, index) => {
-        const item = existingList.items[index]
-        if (!item || positivePrice(item.price) > 0) return
-        const estimate = positivePrice(raw.priceEstimate)
-        if (!(estimate > 0)) return
-        item.priceEstimate = estimate
-        item.priceEstimateSource =
-          raw.priceEstimateSource === "category" ? "category" : "history"
-      })
-    }
-    existingList.totalEstimatedPrice = shoppingListDisplayTotal(
-      existingList.items,
-      totalEstimatedPrice !== undefined
-        ? totalEstimatedPrice
-        : existingList.totalEstimatedPrice
+    const result = await updateShoppingListForUser(
+      req.user,
+      req.params.id,
+      req.body
     )
-    existingList.markModified("items")
-    await existingList.save()
-
-    const shoppingList = await ShoppingList.findOne(query).populate({
-      path: "items.foodId",
-      select: FOOD_ITEM_SELECT,
-    })
-
-    if (!shoppingList) {
+    if (result.status !== "ok") {
       return res.status(404).json({
         success: false,
-        message: "Shopping list not found or unauthorized",
+        message: result.message,
       })
     }
-
     res.json({
       success: true,
-      shoppingList: mergeFoodIdIntoItems(
-        shoppingList.toObject() as unknown as {
-          items: Array<Record<string, unknown>>
-        }
-      ),
+      shoppingList: result.shoppingList,
     })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
