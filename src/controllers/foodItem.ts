@@ -4,7 +4,7 @@ import cloudinary from "../helpers/imageUpload"
 import fs from "fs"
 import type { IFoodItem, FoodLocation } from "../models/foodItem"
 import type { IPantryItem } from "../models/pantry"
-import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
+import type { IShoppingList } from "../models/shoppingList"
 import type { IUser, IUserModel } from "../models/user"
 import {
   AuthenticatedRequest,
@@ -18,7 +18,16 @@ import {
 } from "../helpers/householdHelpers"
 import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import { lookupFoodsByName, toCatalogFoodMatch } from "../services/foodNameLookup"
-import { scoreCatalogNameMatch } from "../services/foodNameMatch"
+import { checkFoodItemAvailabilityForUser } from "../services/checkFoodItemAvailability"
+import { findOrCreateFoodItemForUser } from "../services/findOrCreateFoodItem"
+import {
+  CATALOG_UPDATE_KEYS,
+  EMPTY_QUANTITIES,
+  FOOD_LOCATIONS,
+  normalizeNutrition,
+  resolveIsFood,
+  sanitizeFoodFields,
+} from "../services/foodItemFields"
 import type { IMeal } from "../models/meal"
 import { normalizeAppUnit } from "../utils/openFoodFactsMapper"
 
@@ -118,110 +127,6 @@ interface FoodItemApiResponse {
     name: string
     quantities: IFoodItem["quantities"]
   }>
-}
-
-type PopulatedFoodRef = Pick<IFoodItem, "_id" | "name">
-
-const FOOD_LOCATIONS: FoodLocation[] = ["meal", "shopping-list", "pantry"]
-
-const resolveIsFood = (value: unknown, fallback = true): boolean => {
-  if (value === false || value === "false") return false
-  if (value === true || value === "true") return true
-  return fallback
-}
-
-const sanitizeFoodFields = <
-  T extends {
-    isFood?: boolean
-    category?: string[]
-    calories?: number
-    nutrition?: IFoodItem["nutrition"]
-    expirationDate?: string | Date | null
-  },
->(
-  fields: T,
-  isFood: boolean
-): T => {
-  if (isFood) return fields
-  return {
-    ...fields,
-    category: [],
-    calories: 0,
-    nutrition: undefined,
-    expirationDate: undefined,
-  }
-}
-
-const normalizeNutrition = (
-  nutrition: IFoodItem["nutrition"] | undefined,
-  calories?: number
-): { calories?: number; nutrition?: IFoodItem["nutrition"] } => {
-  if (!nutrition && (calories === undefined || calories === null)) {
-    return { calories }
-  }
-
-  const normalized: IFoodItem["nutrition"] = {
-    ...(nutrition || {}),
-  }
-  const resolvedCalories =
-    calories !== undefined && calories !== null
-      ? Number(calories) || 0
-      : normalized.calories !== undefined
-        ? Number(normalized.calories) || 0
-        : undefined
-
-  if (resolvedCalories !== undefined) {
-    normalized.calories = resolvedCalories
-  }
-
-  const hasAnyValue = Object.values(normalized).some(
-    (value) => typeof value === "number" && !Number.isNaN(value)
-  )
-
-  return {
-    calories: resolvedCalories,
-    nutrition: hasAnyValue ? normalized : undefined,
-  }
-}
-
-const EMPTY_QUANTITIES: IFoodItem["quantities"] = {
-  meal: 0,
-  "shopping-list": 0,
-  pantry: 0,
-}
-
-const CATALOG_UPDATE_KEYS = [
-  "name",
-  "isFood",
-  "category",
-  "unit",
-  "packageQuantity",
-  "price",
-  "calories",
-  "nutrition",
-  "expirationDate",
-  "expireDay",
-  "image",
-  "openFoodFactsData",
-] as const
-
-const getPopulatedFoodName = (foodId: unknown): string | null => {
-  if (!foodId || typeof foodId !== "object" || !("name" in foodId)) {
-    return null
-  }
-  const name = (foodId as { name?: unknown }).name
-  return typeof name === "string" ? name : null
-}
-
-const availabilityNamesMatch = (query: string, candidate: string): boolean =>
-  Boolean(query && candidate && scoreCatalogNameMatch(query, candidate) !== null)
-
-const resolveLocatedFoodId = (foodId: unknown): string => {
-  if (!foodId) return ""
-  if (typeof foodId === "object" && foodId !== null && "_id" in foodId) {
-    return String((foodId as { _id: unknown })._id)
-  }
-  return String(foodId)
 }
 
 export const createFoodItem = async (
@@ -767,126 +672,19 @@ export const findOrCreateFoodItem = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const {
-      name,
-      isFood: isFoodBody,
-      category,
-      unit,
-      price,
-      calories,
-    } = req.body
-
-    const isFood = resolveIsFood(isFoodBody, true)
-
-    if (!name) {
+    const result = await findOrCreateFoodItemForUser(req.user._id, req.body)
+    if (result.status === "bad_request") {
       return res.status(400).json({
         success: false,
-        message: "Food item name is required",
+        message: result.message,
       })
     }
-
-    const normalizeName = (str: string): string =>
-      str
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, " ")
-        .replace(/[^\w\s]/g, "")
-
-    const normalizedSearchName = normalizeName(name)
-
-    const matchesIsFood = (item: IFoodItem) =>
-      resolveIsFood(item.isFood, true) === isFood
-
-    let existingFoodItem: IFoodItem | null = await FoodItem.findOne({
-      user: req.user._id,
-      isFood: isFood ? { $ne: false } : false,
-      $expr: {
-        $eq: [
-          { $toLower: { $trim: { input: "$name" } } },
-          name.toLowerCase().trim(),
-        ],
-      },
-    })
-
-    // Exact normalized match only (no fuzzy). Character-overlap scoring
-    // previously merged unrelated names (e.g. ranskankerma → mansikkamehu).
-    if (!existingFoodItem) {
-      const candidates: IFoodItem[] = await FoodItem.find({
-        user: req.user._id,
-        isFood: isFood ? { $ne: false } : false,
-      })
-      existingFoodItem =
-        candidates.find(
-          (item) =>
-            matchesIsFood(item) &&
-            normalizeName(item.name) === normalizedSearchName
-        ) || null
-    }
-
-    if (existingFoodItem) {
-      if (isFood && category?.length) {
-        existingFoodItem.category = [
-          ...new Set([...(existingFoodItem.category || []), ...category]),
-        ]
-      }
-      if (unit) existingFoodItem.unit = unit
-      if (price !== undefined && price > 0) {
-        if (
-          existingFoodItem.priceSource === "open-prices" ||
-          !(existingFoodItem.price && existingFoodItem.price > 0)
-        ) {
-          existingFoodItem.price = price
-        } else {
-          existingFoodItem.price = (existingFoodItem.price + price) / 2
-        }
-        existingFoodItem.priceSource = "user"
-      }
-      if (isFood && calories !== undefined && calories > 0) {
-        existingFoodItem.calories =
-          existingFoodItem.calories && existingFoodItem.calories > 0
-            ? (existingFoodItem.calories + calories) / 2
-            : calories
-      }
-
-      await existingFoodItem.save()
-
-      return res.json({
-        success: true,
-        foodItem: existingFoodItem,
-        isExisting: true,
-        message: "Found existing food item and updated",
-      })
-    }
-
-    const safeFields = sanitizeFoodFields(
-      { category, calories, expirationDate: undefined },
-      isFood
-    )
-
-    const foodItem = new FoodItem({
-      name,
-      isFood,
-      category: safeFields.category || [],
-      unit: unit || "kpl",
-      price: price || 0,
-      priceSource: price && price > 0 ? "user" : undefined,
-      calories: safeFields.calories || 0,
-      user: req.user._id,
-      locations: [],
-      quantities: { ...EMPTY_QUANTITIES },
-    })
-
-    await foodItem.save()
-
-    await User.findByIdAndUpdate(req.user._id, {
-      $push: { foodItems: foodItem._id },
-    })
 
     return res.json({
       success: true,
-      foodItem,
-      isExisting: false,
-      message: "Created new food item",
+      foodItem: result.foodItem,
+      isExisting: result.isExisting,
+      message: result.message,
     })
   } catch (error: unknown) {
     console.error("Error in findOrCreateFoodItem:", error)
@@ -959,122 +757,25 @@ export const checkItemAvailability = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const { name, foodId } = req.body
-    const searchName = name?.trim() || ""
-
-    if (!searchName && !foodId) {
+    const result = await checkFoodItemAvailabilityForUser(req.user, req.body)
+    if (result.status === "bad_request") {
       return res.status(400).json({
         success: false,
-        message: "Food item name is required",
+        message: result.message,
       })
-    }
-
-    const householdId = resolveHouseholdId(req.user)
-    const memberIds = householdId
-      ? await getHouseholdMemberIds(householdId)
-      : []
-    const catalogQuery =
-      memberIds.length > 0
-        ? { user: { $in: memberIds } }
-        : { user: req.user._id }
-
-    const allFoodItems: IFoodItem[] = await FoodItem.find(catalogQuery)
-    const matchingItems: IFoodItem[] = []
-    const matchingIds = new Set<string>()
-
-    if (foodId) matchingIds.add(String(foodId))
-
-    for (const item of allFoodItems) {
-      const itemId = String(item._id)
-      const isIdMatch = matchingIds.has(itemId)
-      const isNameMatch = Boolean(
-        searchName && availabilityNamesMatch(searchName, item.name)
-      )
-      if (isIdMatch || isNameMatch) {
-        matchingItems.push(item)
-        matchingIds.add(itemId)
-      }
-    }
-
-    const pantry = await getCanonicalPantry(req.user)
-    await pantry.populate<{
-      items: Array<
-        Omit<IPantryItem, "foodId"> & { foodId?: PopulatedFoodRef | null }
-      >
-    }>("items.foodId", "name")
-
-    let inPantry = false
-    let pantryQuantity = 0
-    let pantryUnit = "kpl"
-    if (pantry?.items) {
-      for (const pantryItem of pantry.items) {
-        const populatedId = resolveLocatedFoodId(pantryItem.foodId)
-        const populatedName = getPopulatedFoodName(pantryItem.foodId)
-        const itemName = populatedName ?? pantryItem.name ?? ""
-
-        if (
-          (populatedId && matchingIds.has(populatedId)) ||
-          availabilityNamesMatch(searchName, itemName)
-        ) {
-          inPantry = true
-          pantryQuantity = pantryItem.quantity || 0
-          pantryUnit = normalizeAppUnit(pantryItem.unit)
-          break
-        }
-      }
-    }
-
-    const shoppingLists = await ShoppingList.find(
-      await getDataQuery(req.user)
-    ).populate<{
-      items: Array<
-        Omit<IShoppingListItem, "foodId"> & { foodId?: PopulatedFoodRef | null }
-      >
-    }>("items.foodId", "name")
-
-    let inShoppingList = false
-    let shoppingListQuantity = 0
-    let shoppingListUnit = "kpl"
-    let shoppingListId: IShoppingList["_id"] | null = null
-
-    for (const list of shoppingLists) {
-      if (!list.items) continue
-
-      for (const listItem of list.items) {
-        const populatedId = resolveLocatedFoodId(listItem.foodId)
-        const populatedName = getPopulatedFoodName(listItem.foodId)
-        const itemName = populatedName ?? listItem.name ?? ""
-
-        if (
-          (populatedId && matchingIds.has(populatedId)) ||
-          availabilityNamesMatch(searchName, itemName)
-        ) {
-          inShoppingList = true
-          shoppingListQuantity = listItem.quantity || 0
-          shoppingListUnit = normalizeAppUnit(listItem.unit)
-          shoppingListId = list._id
-          break
-        }
-      }
-
-      if (inShoppingList) break
     }
 
     res.json({
       success: true,
-      inPantry,
-      pantryQuantity,
-      pantryUnit,
-      inShoppingList,
-      shoppingListQuantity,
-      shoppingListUnit,
-      shoppingListId,
-      hasMatchingFoodItem: matchingItems.length > 0,
-      matchingFoodItems: matchingItems.map((item) => ({
-        _id: item._id,
-        name: item.name,
-        quantities: EMPTY_QUANTITIES,
-      })),
+      inPantry: result.inPantry,
+      pantryQuantity: result.pantryQuantity,
+      pantryUnit: result.pantryUnit,
+      inShoppingList: result.inShoppingList,
+      shoppingListQuantity: result.shoppingListQuantity,
+      shoppingListUnit: result.shoppingListUnit,
+      shoppingListId: result.shoppingListId,
+      hasMatchingFoodItem: result.hasMatchingFoodItem,
+      matchingFoodItems: result.matchingFoodItems,
     })
   } catch (error: unknown) {
     console.error("Error checking item availability:", error)
