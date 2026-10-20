@@ -5,7 +5,6 @@ import type { IShoppingList, IShoppingListItem } from "../models/shoppingList"
 import {
   AuthenticatedRequest,
   getErrorMessage,
-  parseQuantity,
   resolveModule,
 } from "../helpers/controllerUtils"
 import {
@@ -15,7 +14,6 @@ import {
 import {
   applyEstimatesToShoppingItems,
   estimateShoppingListItems,
-  rememberUserPriceOnFoodItem,
 } from "../services/priceEstimateService"
 import {
   positivePrice,
@@ -26,11 +24,15 @@ import {
   FOOD_ITEM_SELECT,
   mapShoppingListItem,
   mergeFoodIdIntoItems,
-  resolveIsFood,
-  resolveItemFoodId,
   shoppingListAccessQuery,
   type ShoppingListItemInput,
 } from "../services/shoppingListItemMapping"
+import {
+  applyShoppingListItemUpdates,
+  findShoppingListItemByRowId,
+  findShoppingListItemIndex,
+  prepareShoppingListItemsForAdd,
+} from "../services/shoppingListItemOps"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -63,24 +65,7 @@ export const createShoppingList = async (
     }
 
     const ownership = getDataOwnership(req.user)
-    const mappedItems = items.map((item) => {
-      const { _id: _ignoredId, ...rest } = (item || {}) as ShoppingListItemInput & {
-        _id?: unknown
-      }
-      return mapShoppingListItem(rest) as IShoppingListItem
-    })
-    await applyEstimatesToShoppingItems(req.user, mappedItems)
-    await Promise.all(
-      mappedItems.map(async (item) => {
-        const userPrice = positivePrice(item.price)
-        if (userPrice > 0 && item.foodId) {
-          await rememberUserPriceOnFoodItem(item.foodId, userPrice, {
-            quantity: item.quantity,
-            unit: item.unit,
-          })
-        }
-      })
-    )
+    const mappedItems = await prepareShoppingListItemsForAdd(req.user, items)
     const shoppingList = new ShoppingList({
       userId: ownership.userId,
       household: ownership.household,
@@ -392,19 +377,10 @@ export const deleteShoppingListItem = async (
       })
     }
 
-    const itemIndex = shoppingList.items.findIndex((listItem) => {
-      const rowId = listItem._id?.toString?.() || String(listItem._id || "")
-      if (rowId && rowId === normalizedItemId) return true
-      const foodId =
-        listItem.foodId &&
-        typeof listItem.foodId === "object" &&
-        "_id" in listItem.foodId
-          ? String((listItem.foodId as { _id: unknown })._id)
-          : listItem.foodId
-            ? String(listItem.foodId)
-            : ""
-      return Boolean(foodId) && foodId === normalizedItemId
-    })
+    const itemIndex = findShoppingListItemIndex(
+      shoppingList.items,
+      normalizedItemId
+    )
 
     if (itemIndex === -1) {
       return res.status(404).json({
@@ -473,8 +449,9 @@ export const updateShoppingListItem = async (
       })
     }
 
-    const item = shoppingList.items.find(
-      (listItem) => listItem._id?.toString() === normalizedItemId
+    const item = findShoppingListItemByRowId(
+      shoppingList.items,
+      normalizedItemId
     )
 
     if (!item) {
@@ -484,78 +461,7 @@ export const updateShoppingListItem = async (
       })
     }
 
-    if (updates.name !== undefined) item.name = updates.name
-    if (updates.quantity !== undefined) {
-      item.quantity = parseQuantity(updates.quantity)
-    }
-    if (updates.unit !== undefined) item.unit = updates.unit
-    if (updates.category !== undefined || updates.categories !== undefined) {
-      item.category = updates.category || updates.categories || []
-    }
-    if (updates.calories !== undefined) item.calories = updates.calories
-    if (updates.price !== undefined) item.price = positivePrice(updates.price)
-    if (updates.estimatedPrice !== undefined) {
-      item.estimatedPrice = updates.estimatedPrice
-    }
-    if (updates.isFood !== undefined) {
-      item.isFood = resolveIsFood(updates.isFood, true)
-      if (!item.isFood) {
-        item.category = []
-        item.calories = 0
-      }
-    }
-    if (updates.bought !== undefined) {
-      item.bought = Boolean(updates.bought)
-    }
-    const resolvedFoodId = resolveItemFoodId(updates.foodId)
-    if (resolvedFoodId) {
-      item.foodId = resolvedFoodId
-    }
-
-    const userPrice = positivePrice(item.price)
-    const shouldEstimate =
-      !userPrice &&
-      (updates.price !== undefined ||
-        updates.quantity !== undefined ||
-        updates.unit !== undefined ||
-        updates.name !== undefined ||
-        updates.category !== undefined ||
-        updates.categories !== undefined ||
-        updates.isFood !== undefined ||
-        !(positivePrice(item.priceEstimate) > 0))
-    if (userPrice > 0) {
-      item.priceEstimate = undefined
-      item.priceEstimateSource = undefined
-      if (updates.price !== undefined) {
-        await rememberUserPriceOnFoodItem(item.foodId, userPrice, {
-          quantity: item.quantity,
-          unit: item.unit,
-        })
-      }
-    } else if (shouldEstimate) {
-      const clientEstimate = positivePrice(updates.priceEstimate)
-      if (clientEstimate > 0) {
-        // Duplicate-merge sends a line total already scaled to the new quantity.
-        item.priceEstimate = clientEstimate
-        item.priceEstimateSource =
-          updates.priceEstimateSource === "category" ? "category" : "history"
-      } else {
-        // The stored estimate is for the previous quantity. Drop it so the
-        // server can scale a fresh one.
-        item.priceEstimate = undefined
-        item.priceEstimateSource = undefined
-      }
-      await applyEstimatesToShoppingItems(req.user, [item])
-    } else if (updates.priceEstimate !== undefined) {
-      const estimate = positivePrice(updates.priceEstimate)
-      item.priceEstimate = estimate > 0 ? estimate : undefined
-      item.priceEstimateSource =
-        estimate > 0
-          ? updates.priceEstimateSource === "category"
-            ? "category"
-            : "history"
-          : undefined
-    }
+    await applyShoppingListItemUpdates(req.user, item, updates)
 
     shoppingList.totalEstimatedPrice = shoppingListDisplayTotal(
       shoppingList.items
@@ -616,48 +522,9 @@ export const addItemsToShoppingList = async (
       })
     }
 
-    const mappedItems = items.map((item) => {
-      // Ignore client-provided row ids on create — barcode flow may send a
-      // FoodItem id as _id, which breaks later delete/update by row id.
-      const { _id: _ignoredId, ...rest } = (item || {}) as ShoppingListItemInput & {
-        _id?: unknown
-      }
-      return mapShoppingListItem(rest) as IShoppingListItem
-    })
-    // Seed scan-preview estimates before server recalculation so a failed
-    // lookup does not leave the new row without a price.
-    items.forEach((raw, index) => {
-      const estimate = positivePrice(raw.priceEstimate)
-      if (!(estimate > 0) || positivePrice(mappedItems[index]?.price) > 0) {
-        return
-      }
-      mappedItems[index].priceEstimate = estimate
-      mappedItems[index].priceEstimateSource =
-        raw.priceEstimateSource === "category" ? "category" : "history"
-    })
-    await applyEstimatesToShoppingItems(req.user, mappedItems)
-    // Restore scan-preview estimates when the server could not recalculate.
-    items.forEach((raw, index) => {
-      const item = mappedItems[index]
-      if (!item || positivePrice(item.price) > 0) return
-      if (positivePrice(item.priceEstimate) > 0) return
-      const estimate = positivePrice(raw.priceEstimate)
-      if (!(estimate > 0)) return
-      item.priceEstimate = estimate
-      item.priceEstimateSource =
-        raw.priceEstimateSource === "category" ? "category" : "history"
-    })
-    await Promise.all(
-      mappedItems.map(async (item) => {
-        const userPrice = positivePrice(item.price)
-        if (userPrice > 0 && item.foodId) {
-          await rememberUserPriceOnFoodItem(item.foodId, userPrice, {
-            quantity: item.quantity,
-            unit: item.unit,
-          })
-        }
-      })
-    )
+    // Ignore client-provided row ids on create — barcode flow may send a
+    // FoodItem id as _id, which breaks later delete/update by row id.
+    const mappedItems = await prepareShoppingListItemsForAdd(req.user, items)
     shoppingList.items.push(...mappedItems)
 
     shoppingList.totalEstimatedPrice = shoppingListDisplayTotal(
