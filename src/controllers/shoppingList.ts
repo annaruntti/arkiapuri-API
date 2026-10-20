@@ -27,13 +27,12 @@ import {
   shoppingListAccessQuery,
   type ShoppingListItemInput,
 } from "../services/shoppingListItemMapping"
-import {
-  applyShoppingListItemUpdates,
-  findShoppingListItemByRowId,
-  findShoppingListItemIndex,
-  prepareShoppingListItemsForAdd,
-} from "../services/shoppingListItemOps"
+import { prepareShoppingListItemsForAdd } from "../services/shoppingListItemOps"
 import { setShoppingListItemBoughtForUser } from "../services/shoppingListBought"
+import {
+  deleteShoppingListItemForUser,
+  updateShoppingListItemForUser,
+} from "../services/shoppingListItemMutations"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -330,58 +329,21 @@ export const deleteShoppingListItem = async (
   res: Response
 ) => {
   try {
-    const { listId, itemId } = req.params
-    const normalizedItemId = String(itemId)
-
-    const shoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
+    const result = await deleteShoppingListItemForUser(
+      req.user,
+      req.params.listId,
+      req.params.itemId
     )
-
-    if (!shoppingList) {
+    if (result.status !== "ok") {
       return res.status(404).json({
         success: false,
-        message: "Shopping list not found",
+        message: result.message,
       })
     }
-
-    const itemIndex = findShoppingListItemIndex(
-      shoppingList.items,
-      normalizedItemId
-    )
-
-    if (itemIndex === -1) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in shopping list",
-      })
-    }
-
-    const item = shoppingList.items[itemIndex]
-
-    shoppingList.items.splice(itemIndex, 1)
-    shoppingList.totalEstimatedPrice = shoppingListDisplayTotal(
-      shoppingList.items
-    )
-    shoppingList.markModified("items")
-    await shoppingList.save()
-
-    const updatedShoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
-    ).populate({
-      path: "items.foodId",
-      select: FOOD_ITEM_SELECT,
-    })
-
     res.json({
       success: true,
-      message: "Item removed from shopping list",
-      shoppingList: updatedShoppingList
-        ? mergeFoodIdIntoItems(
-            updatedShoppingList.toObject() as unknown as {
-              items: Array<Record<string, unknown>>
-            }
-          )
-        : shoppingList,
+      message: result.message,
+      shoppingList: result.shoppingList,
     })
   } catch (error: unknown) {
     console.error("Error in deleteShoppingListItem:", error)
@@ -401,58 +363,21 @@ export const updateShoppingListItem = async (
   res: Response
 ) => {
   try {
-    const { listId, itemId } = req.params
-    const updates = req.body
-    const normalizedItemId = String(itemId)
-
-    const shoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
+    const result = await updateShoppingListItemForUser(
+      req.user,
+      req.params.listId,
+      req.params.itemId,
+      req.body
     )
-
-    if (!shoppingList) {
+    if (result.status !== "ok") {
       return res.status(404).json({
         success: false,
-        message: "Shopping list not found",
+        message: result.message,
       })
     }
-
-    const item = findShoppingListItemByRowId(
-      shoppingList.items,
-      normalizedItemId
-    )
-
-    if (!item) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in shopping list",
-      })
-    }
-
-    await applyShoppingListItemUpdates(req.user, item, updates)
-
-    shoppingList.totalEstimatedPrice = shoppingListDisplayTotal(
-      shoppingList.items
-    )
-    shoppingList.markModified("items")
-
-    await shoppingList.save()
-
-    const updatedShoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
-    ).populate({
-      path: "items.foodId",
-      select: FOOD_ITEM_SELECT,
-    })
-
     res.json({
       success: true,
-      shoppingList: updatedShoppingList
-        ? mergeFoodIdIntoItems(
-            updatedShoppingList.toObject() as unknown as {
-              items: Array<Record<string, unknown>>
-            }
-          )
-        : shoppingList,
+      shoppingList: result.shoppingList,
     })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
