@@ -33,6 +33,7 @@ import {
   findShoppingListItemIndex,
   prepareShoppingListItemsForAdd,
 } from "../services/shoppingListItemOps"
+import { setShoppingListItemBoughtForUser } from "../services/shoppingListBought"
 
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
@@ -191,59 +192,25 @@ export const setItemBought = async (
   res: Response
 ) => {
   try {
-    const { listId, itemId } = req.params
-    const normalizedItemId = String(itemId)
-
-    const shoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
+    const result = await setShoppingListItemBoughtForUser(
+      req.user,
+      req.params.listId,
+      req.params.itemId,
+      req.body?.bought
     )
 
-    if (!shoppingList) {
-      return res.status(404).json({
+    if (result.status !== "ok") {
+      const statusCode = result.status === "bad_request" ? 400 : 404
+      return res.status(statusCode).json({
         success: false,
-        message: "Shopping list not found",
+        message: result.message,
       })
     }
-
-    const item = shoppingList.items.find(
-      (listItem) => listItem._id?.toString() === normalizedItemId
-    )
-
-    if (!item) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in shopping list",
-      })
-    }
-
-    if (typeof req.body?.bought !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "bought must be a boolean",
-      })
-    }
-
-    item.bought = req.body.bought
-    shoppingList.markModified("items")
-    await shoppingList.save()
-
-    const updatedShoppingList = await ShoppingList.findOne(
-      await shoppingListAccessQuery(req.user, listId)
-    ).populate({
-      path: "items.foodId",
-      select: FOOD_ITEM_SELECT,
-    })
 
     res.json({
       success: true,
-      message: item.bought ? "Item marked as bought" : "Item restored to list",
-      shoppingList: updatedShoppingList
-        ? mergeFoodIdIntoItems(
-            updatedShoppingList.toObject() as unknown as {
-              items: Array<Record<string, unknown>>
-            }
-          )
-        : shoppingList,
+      message: result.message,
+      shoppingList: result.shoppingList,
     })
   } catch (error: unknown) {
     console.error("Error in setItemBought:", error)
