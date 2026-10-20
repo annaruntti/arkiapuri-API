@@ -8,7 +8,6 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
-import { sendFamilyInvitation } from "../services/emailService"
 import {
   resolveHouseholdId,
   shareHouseholdDocuments,
@@ -24,6 +23,10 @@ import {
   restoreUserHouseholdLink,
   serializeHouseholdMembers,
 } from "../services/householdAccess"
+import {
+  acceptHouseholdInvitation,
+  inviteUserToHousehold,
+} from "../services/householdInvite"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -32,8 +35,6 @@ const User = resolveModule<IUserModel>(require("../models/user"))
 const Invitation = resolveModule<Model<IInvitation>>(
   require("../models/invitation")
 )
-const { v4: uuidv4 } = require("uuid") as { v4: () => string }
-
 export const createHousehold = async (
   req: AuthenticatedRequest<
     Record<string, string>,
@@ -187,104 +188,24 @@ export const inviteToHousehold = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const { email } = req.body
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Sähköpostiosoite vaaditaan",
-      })
+    const result = await inviteUserToHousehold(req.user, req.body.email)
+    if (result.status === "ok") {
+      return res.json({ success: true, message: result.message })
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Virheellinen sähköpostiosoite",
-      })
-    }
+    const statusCode =
+      result.status === "not_found"
+        ? 404
+        : result.status === "forbidden"
+          ? 403
+          : result.status === "server_error"
+            ? 500
+            : 400
 
-    const household = await Household.findById(householdIdForUser(req.user)).populate(
-      "owner",
-      "username email"
-    )
-
-    if (!household) {
-      return res.status(404).json({
-        success: false,
-        message: "Perhettä ei löytynyt",
-      })
-    }
-
-    if (!household.canInvite(userId)) {
-      return res.status(403).json({
-        success: false,
-        message: "Sinulla ei ole oikeutta kutsua jäseniä",
-      })
-    }
-
-    const existingUser = await User.findOne({ email: email.toLowerCase() })
-    if (existingUser && household.isMember(existingUser._id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Käyttäjä on jo perheenjäsen",
-      })
-    }
-
-    const existingInvitation = await Invitation.findOne({
-      email: email.toLowerCase(),
-      household: household._id,
-      status: "pending",
-      expiresAt: { $gt: new Date() },
-    })
-
-    if (existingInvitation) {
-      return res.status(400).json({
-        success: false,
-        message: "Tällä sähköpostiosoitteella on jo odottava kutsu",
-      })
-    }
-
-    const invitationToken = uuidv4()
-    const invitation = new Invitation({
-      email: email.toLowerCase(),
-      household: household._id,
-      invitedBy: userId,
-      invitationToken,
-      status: "pending",
-    })
-
-    await invitation.save()
-
-    const frontendUrl = process.env.FRONTEND_URL || "arkiapuri://"
-    const webUrl = process.env.WEB_URL || "http://localhost:8081"
-    const inviteLink = `${frontendUrl}accept-invite/${invitationToken}`
-    const webInviteLink = `${webUrl}/accept-invite/${invitationToken}`
-
-    const emailResult = await sendFamilyInvitation({
-      to: email,
-      inviterName: req.user.username || req.user.email,
-      householdName: household.name,
-      inviteLink,
-      webInviteLink,
-      invitationToken,
-    })
-
-    if (!emailResult.success) {
-      console.error("Failed to send invitation email:", emailResult.error)
-      return res.status(500).json({
-        success: false,
-        message: `Kutsun luonti epäonnistui: sähköpostin lähetys epäonnistui (${
-          emailResult.error || "unknown error"
-        })`,
-        inviteLink,
-      })
-    }
-
-    res.json({
-      success: true,
-      message: `Kutsusähköposti lähetetty osoitteeseen ${email}`,
+    return res.status(statusCode).json({
+      success: false,
+      message: result.message,
+      ...(result.inviteLink ? { inviteLink: result.inviteLink } : {}),
     })
   } catch (error: unknown) {
     console.error("Error inviting to household:", error)
@@ -649,86 +570,23 @@ export const acceptInvitation = async (
   res: Response
 ) => {
   try {
-    const userId = req.user._id
-    const { invitationToken } = req.body
+    const result = await acceptHouseholdInvitation(
+      req.user,
+      req.body.invitationToken
+    )
 
-    if (!invitationToken) {
-      return res.status(400).json({
+    if (result.status !== "ok") {
+      const statusCode = result.status === "not_found" ? 404 : 400
+      return res.status(statusCode).json({
         success: false,
-        message: "Kutsukoodi vaaditaan",
+        message: result.message,
       })
     }
-
-    if (req.user.household) {
-      return res.status(400).json({
-        success: false,
-        message: "Olet jo osa perhettä. Poistu ensin nykyisestä perheestä.",
-      })
-    }
-
-    const invitation = await Invitation.findOne({
-      invitationToken,
-    }).populate("household")
-
-    if (!invitation) {
-      return res.status(404).json({
-        success: false,
-        message: "Kutsu ei kelpaa tai sitä ei löydy",
-      })
-    }
-
-    if (!invitation.isValid()) {
-      if (invitation.status === "pending" && new Date() > invitation.expiresAt) {
-        await invitation.markExpired()
-      }
-
-      return res.status(400).json({
-        success: false,
-        message: "Kutsu on vanhentunut tai virheellinen",
-      })
-    }
-
-    const household = invitation.household as unknown as IHousehold | null
-
-    if (!household) {
-      return res.status(404).json({
-        success: false,
-        message: "Perhettä ei löytynyt",
-      })
-    }
-
-    if (invitation.email !== req.user.email.toLowerCase()) {
-      console.warn(
-        `User ${req.user.email} accepting invitation for ${invitation.email}`
-      )
-    }
-
-    household.members.push({
-      userId,
-      role: "member",
-      joinedAt: new Date(),
-    })
-
-    await household.save()
-
-    invitation.status = "accepted"
-    invitation.acceptedAt = new Date()
-    invitation.acceptedBy = userId
-    await invitation.save()
-
-    await User.findByIdAndUpdate(userId, { household: household._id })
-    req.user.household = household._id
-    await shareHouseholdDocuments(household._id)
-    await getCanonicalPantry(req.user)
-
-    const populatedHousehold = await Household.findById(household._id)
-      .populate("members.userId", "username email profileImage")
-      .populate("owner", "username email profileImage")
 
     res.json({
       success: true,
-      household: populatedHousehold,
-      message: "Liityit perheeseen onnistuneesti",
+      household: result.household,
+      message: result.message,
     })
   } catch (error: unknown) {
     console.error("Error accepting invitation:", error)
