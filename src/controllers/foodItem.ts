@@ -26,20 +26,18 @@ import {
   type QuantityAction,
 } from "../services/foodItemQuantity"
 import {
-  CATALOG_UPDATE_KEYS,
   EMPTY_QUANTITIES,
   normalizeNutrition,
   resolveIsFood,
   sanitizeFoodFields,
 } from "../services/foodItemFields"
-import type { IMeal } from "../models/meal"
+import { updateFoodItemForUser } from "../services/foodItemUpdate"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 const User = resolveModule<IUserModel>(require("../models/user"))
 const ShoppingList = resolveModule<Model<IShoppingList>>(
   require("../models/shoppingList")
 )
-const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 
 interface FoodItemQuantitiesInput {
   meal?: string | number
@@ -221,93 +219,18 @@ export const updateFoodItem = async (
   res: Response<FoodItemApiResponse>
 ) => {
   try {
-    const updates: UpdateFoodItemBody = {}
-    for (const key of CATALOG_UPDATE_KEYS) {
-      if (req.body[key as keyof UpdateFoodItemBody] !== undefined) {
-        ;(updates as Record<string, unknown>)[key] =
-          req.body[key as keyof UpdateFoodItemBody]
-      }
-    }
-
-    if (updates.nutrition !== undefined) {
-      const nutritionFields = normalizeNutrition(
-        updates.nutrition,
-        updates.calories
-      )
-      updates.calories = nutritionFields.calories
-      updates.nutrition = nutritionFields.nutrition
-    } else if (updates.calories !== undefined) {
-      updates.calories = Number(updates.calories) || 0
-    }
-
-    if (updates.isFood !== undefined) {
-      const isFood = resolveIsFood(updates.isFood, true)
-      const sanitized = sanitizeFoodFields(
-        {
-          category: updates.category,
-          calories: updates.calories,
-          nutrition: updates.nutrition,
-          expirationDate: updates.expirationDate,
-        },
-        isFood
-      )
-      updates.category = sanitized.category
-      updates.calories = sanitized.calories
-      updates.nutrition = sanitized.nutrition
-      updates.expirationDate = sanitized.expirationDate
-      updates.isFood = isFood
-    }
-
-    if (updates.price !== undefined && Number(updates.price) > 0) {
-      updates.priceSource = "user"
-    }
-
-    const foodItem = await FoodItem.findOneAndUpdate(
-      { _id: req.params.id, user: req.user._id },
-      updates,
-      { new: true }
-    )
-
-    if (foodItem) {
-      return res.json({ success: true, foodItem })
-    }
-
-    // Household meals can reference another member's food items. Allow update
-    // when the item is used by a meal the current user can access.
-    const existingItem = await FoodItem.findById(req.params.id)
-    if (!existingItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found or unauthorized",
-      })
-    }
-
-    const sharedMeal = await Meal.findOne({
-      $and: [
-        {
-          $or: [
-            { "foodItems.foodId": existingItem._id },
-            { foodItems: existingItem._id },
-          ],
-        },
-        await getDataQuery(req.user, "user"),
-      ],
-    }).select("_id")
-
-    if (!sharedMeal) {
-      return res.status(404).json({
-        success: false,
-        message: "Food item not found or unauthorized",
-      })
-    }
-
-    const sharedFoodItem = await FoodItem.findByIdAndUpdate(
+    const result = await updateFoodItemForUser(
+      req.user,
       req.params.id,
-      updates,
-      { new: true }
+      req.body
     )
-
-    res.json({ success: true, foodItem: sharedFoodItem })
+    if (result.status !== "ok") {
+      return res.status(404).json({
+        success: false,
+        message: result.message,
+      })
+    }
+    res.json({ success: true, foodItem: result.foodItem })
   } catch (error: unknown) {
     res.status(400).json({ success: false, error: getErrorMessage(error) })
   }
