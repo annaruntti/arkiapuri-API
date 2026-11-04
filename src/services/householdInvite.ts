@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto"
 import type { Model } from "mongoose"
 import type { IHousehold } from "../models/household"
 import type { IInvitation } from "../models/invitation"
@@ -15,8 +16,6 @@ const User = resolveModule<IUserModel>(require("../models/user"))
 const Invitation = resolveModule<Model<IInvitation>>(
   require("../models/invitation")
 )
-const { v4: uuidv4 } = require("uuid") as { v4: () => string }
-
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export type HouseholdInviteResult =
@@ -77,7 +76,7 @@ export const inviteUserToHousehold = async (
     }
   }
 
-  const invitationToken = uuidv4()
+  const invitationToken = randomUUID()
   const invitation = new Invitation({
     email: email.toLowerCase(),
     household: household._id,
