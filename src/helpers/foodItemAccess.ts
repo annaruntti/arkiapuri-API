@@ -6,6 +6,24 @@ import {
   resolveHouseholdId,
 } from "./householdHelpers"
 
+/** Pure filter builder (also used by unit tests). */
+export const scopedFoodItemIdsFilter = (
+  ids: unknown[],
+  memberIds: mongoose.Types.ObjectId[],
+  fallbackUserId?: mongoose.Types.ObjectId
+): FilterQuery<IFoodItem> => {
+  if (memberIds.length > 0) {
+    return {
+      _id: { $in: ids },
+      user: mongoose.trusted({ $in: memberIds }),
+    }
+  }
+  return {
+    _id: { $in: ids },
+    user: fallbackUserId,
+  }
+}
+
 /**
  * Scope FoodItem queries to the user's household catalog owners.
  */
@@ -25,7 +43,14 @@ export const foodItemOwnerFilter = async (
 export const foodItemsOwnedFilter = async (
   user: IUser,
   ids: unknown[]
-): Promise<FilterQuery<IFoodItem>> => ({
-  _id: { $in: ids },
-  ...(await foodItemOwnerFilter(user)),
-})
+): Promise<FilterQuery<IFoodItem>> => {
+  const householdId = resolveHouseholdId(user)
+  const memberIds = householdId
+    ? await getHouseholdMemberIds(householdId)
+    : []
+  return scopedFoodItemIdsFilter(
+    ids,
+    memberIds,
+    user._id as mongoose.Types.ObjectId
+  )
+}

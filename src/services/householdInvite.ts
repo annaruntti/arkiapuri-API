@@ -89,6 +89,17 @@ export const inviteUserToHousehold = async (
     }
   }
 
+  const householdInvitesLastDay = await Invitation.countDocuments({
+    household: household._id,
+    createdAt: { $gte: dayAgo },
+  })
+  if (householdInvitesLastDay >= 40) {
+    return {
+      status: "bad_request",
+      message: "Perheeseen on lähetetty liian monta kutsua tänään",
+    }
+  }
+
   const pendingForHousehold = await Invitation.countDocuments({
     household: household._id,
     status: "pending",
