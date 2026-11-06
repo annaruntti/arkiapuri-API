@@ -35,6 +35,23 @@ describe("oauth state", () => {
     assert.equal(jar.has("oauth_state"), false)
   })
 
+  it("returns the PKCE verifier issued with the state", () => {
+    const { res, jar } = mockResponse()
+    const verifier = "a".repeat(43)
+    const state = issueOAuthState(res, false, { pkceVerifier: verifier })
+
+    const result = consumeOAuthState(
+      requestWith(
+        `oauth_state=${jar.get("oauth_state")}; oauth_pkce=${verifier}`
+      ),
+      res,
+      state
+    )
+
+    assert.deepEqual(result, { isMobile: false, pkceVerifier: verifier })
+    assert.equal(jar.has("oauth_pkce"), false)
+  })
+
   it("keeps the mobile flag inside the verified state", () => {
     const { res, jar } = mockResponse()
     const state = issueOAuthState(res, true)

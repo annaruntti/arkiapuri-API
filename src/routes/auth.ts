@@ -10,6 +10,8 @@ import {
 } from "../helpers/passwordPolicy"
 import { buildOAuthRedirectUrl } from "../helpers/oauthRedirect"
 import { consumeOAuthState, issueOAuthState } from "../helpers/oauthState"
+import { createPkcePair } from "../helpers/pkce"
+import { isSocialIdTokenProvider } from "../helpers/socialProviders"
 import {
   createAuthCodeForUser,
   exchangeAuthCode,
@@ -57,7 +59,8 @@ router.get("/google", (req: Request, res: Response) => {
   const clientId = process.env.GOOGLE_CLIENT_ID as string
   const isMobile = req.query.platform === "mobile"
   const redirectUri = `${process.env.APP_URL}/auth/google/callback`
-  const state = issueOAuthState(res, isMobile)
+  const { verifier, challenge } = createPkcePair()
+  const state = issueOAuthState(res, isMobile, { pkceVerifier: verifier })
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -67,6 +70,8 @@ router.get("/google", (req: Request, res: Response) => {
     access_type: "offline",
     prompt: "select_account",
     state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
   })
 
   res.redirect(`${googleAuthUrl}?${params}`)
@@ -80,6 +85,9 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     return redirectOAuthError(res, "google", false, "Invalid state")
   }
   const isMobileRequest = oauthState.isMobile
+  if (!oauthState.pkceVerifier) {
+    return redirectOAuthError(res, "google", isMobileRequest, "Missing PKCE verifier")
+  }
 
   try {
 
@@ -89,6 +97,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
       code,
       grant_type: "authorization_code",
       redirect_uri: `${process.env.APP_URL}/auth/google/callback`,
+      code_verifier: oauthState.pkceVerifier,
     })
 
     const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
@@ -385,7 +394,7 @@ router.post("/social", authRateLimiter, async (req: Request, res: Response) => {
     const { provider, token, idToken } = req.body
     const googleToken = idToken || token
 
-    if (provider !== "google") {
+    if (!isSocialIdTokenProvider(provider)) {
       return res
         .status(400)
         .json({ success: false, message: "Tuntematon palveluntarjoaja" })
