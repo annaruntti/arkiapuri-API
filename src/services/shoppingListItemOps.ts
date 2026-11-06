@@ -98,6 +98,7 @@ export const applyShoppingListItemUpdates = async (
       await rememberUserPriceOnFoodItem(item.foodId, userPrice, {
         quantity: item.quantity,
         unit: item.unit,
+        user,
       })
     }
   } else if (shouldEstimate) {
@@ -167,6 +168,7 @@ export const prepareShoppingListItemsForAdd = async (
         await rememberUserPriceOnFoodItem(item.foodId, userPrice, {
           quantity: item.quantity,
           unit: item.unit,
+          user,
         })
       }
     })

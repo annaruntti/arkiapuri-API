@@ -18,6 +18,7 @@ import {
   resolveLocationFromStorageCategories,
   resolvePantryLocationId,
 } from "./pantryItemOps"
+import { foodItemOwnerFilter } from "../helpers/foodItemAccess"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
 
@@ -136,9 +137,14 @@ export const updatePantryItemForUser = async (
           ? (item.foodId as unknown as { _id: string })._id
           : item.foodId
 
-      await FoodItem.findByIdAndUpdate(foodItemId, foodItemUpdate, {
-        new: true,
-      })
+      await FoodItem.findOneAndUpdate(
+        {
+          _id: foodItemId,
+          ...(await foodItemOwnerFilter(user)),
+        },
+        foodItemUpdate,
+        { new: true }
+      )
     }
   }
 

@@ -21,6 +21,7 @@ import {
   normalizeRecipeSteps,
 } from "../helpers/recipeSteps"
 import type { CreateMealInput } from "./mealCreate"
+import { foodItemsOwnedFilter } from "../helpers/foodItemAccess"
 
 const Meal = resolveModule<Model<IMeal>>(require("../models/meal"))
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -30,9 +31,33 @@ const FOOD_ITEM_POPULATE = {
   select: MEAL_FOOD_CATALOG_SELECT,
 }
 
+const MEAL_UPDATE_KEYS = [
+  "name",
+  "recipe",
+  "recipeSteps",
+  "difficultyLevel",
+  "cookingTime",
+  "foodItems",
+  "defaultRoles",
+  "mealCategory",
+  "plannedCookingDate",
+  "plannedEatingDates",
+  "servings",
+] as const
+
 const mealAccessQuery = async (user: IUser, mealId: string) => ({
   $and: [{ _id: mealId }, await getDataQuery(user, "user")],
 })
+
+const pickMealUpdateFields = (body: CreateMealInput): CreateMealInput => {
+  const picked: CreateMealInput = {}
+  for (const key of MEAL_UPDATE_KEYS) {
+    if (body[key] !== undefined) {
+      ;(picked as Record<string, unknown>)[key] = body[key]
+    }
+  }
+  return picked
+}
 
 export type UpdateMealResult =
   | { status: "ok"; meal: ReturnType<typeof flattenMealFoodItems> }
@@ -47,7 +72,7 @@ export const updateMealForUser = async (
   mealId: string,
   body: CreateMealInput
 ): Promise<UpdateMealResult> => {
-  const updateData: CreateMealInput = { ...body }
+  const updateData = pickMealUpdateFields(body)
   const accessQuery = await mealAccessQuery(user, mealId)
 
   const meal = await Meal.findOne(accessQuery)
@@ -96,9 +121,9 @@ export const updateMealForUser = async (
     if (ingredientRows.length > 0) {
       const foodItemIds = ingredientRows.map((row) => row.foodId)
       const uniqueIds = [...new Set(foodItemIds)]
-      const validFoodItems = await FoodItem.find({
-        _id: { $in: uniqueIds },
-      })
+      const validFoodItems = await FoodItem.find(
+        await foodItemsOwnedFilter(user, uniqueIds)
+      )
       if (validFoodItems.length !== uniqueIds.length) {
         return { status: "bad_request", message: "Invalid food items" }
       }

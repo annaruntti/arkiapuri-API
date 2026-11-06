@@ -8,11 +8,7 @@ import {
   getErrorMessage,
   resolveModule,
 } from "../helpers/controllerUtils"
-import {
-  getDataQuery,
-  getHouseholdMemberIds,
-  resolveHouseholdId,
-} from "../helpers/householdHelpers"
+import { foodItemOwnerFilter } from "../helpers/foodItemAccess"
 import { lookupFoodItemsByNameForUser } from "../services/foodItemLookupByName"
 import { checkFoodItemAvailabilityForUser } from "../services/checkFoodItemAvailability"
 import { findOrCreateFoodItemForUser } from "../services/findOrCreateFoodItem"
@@ -149,16 +145,7 @@ export const getFoodItems = async (
   try {
     // Catalog only. Pantry contents live on the Pantry document (`GET /pantry`),
     // not on FoodItem.locations / FoodItem.quantities.
-    const householdId = resolveHouseholdId(req.user)
-    const memberIds = householdId
-      ? await getHouseholdMemberIds(householdId)
-      : []
-    const query: FilterQuery<IFoodItem> = {
-      user:
-        memberIds.length > 0
-          ? { $in: memberIds }
-          : req.user._id,
-    }
+    const query: FilterQuery<IFoodItem> = await foodItemOwnerFilter(req.user)
     const foodItems = await FoodItem.find(query)
     res.json({ success: true, foodItems })
   } catch (error: unknown) {

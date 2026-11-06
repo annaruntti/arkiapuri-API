@@ -121,9 +121,10 @@ export const createMealForUser = async (
   if (ingredientRows.length > 0) {
     const foodItemIds = ingredientRows.map((row) => row.foodId)
     const uniqueIds = [...new Set(foodItemIds)]
-    const validFoodItems = await FoodItem.find({
-      _id: { $in: uniqueIds },
-    })
+    const { foodItemsOwnedFilter } = require("../helpers/foodItemAccess") as typeof import("../helpers/foodItemAccess")
+    const validFoodItems = await FoodItem.find(
+      await foodItemsOwnedFilter(user, uniqueIds)
+    )
 
     if (validFoodItems.length !== uniqueIds.length) {
       return { status: "bad_request", message: "Invalid food items" }

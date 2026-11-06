@@ -8,6 +8,7 @@ export const EMPTY_QUANTITIES: IFoodItem["quantities"] = {
   pantry: 0,
 }
 
+/** Client-updatable catalog fields (image only via dedicated upload route). */
 export const CATALOG_UPDATE_KEYS = [
   "name",
   "isFood",
@@ -19,8 +20,6 @@ export const CATALOG_UPDATE_KEYS = [
   "nutrition",
   "expirationDate",
   "expireDay",
-  "image",
-  "openFoodFactsData",
 ] as const
 
 export const resolveIsFood = (value: unknown, fallback = true): boolean => {

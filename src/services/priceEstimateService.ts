@@ -327,7 +327,11 @@ export const applyEstimatesToShoppingItems = async (
 export const rememberUserPriceOnFoodItem = async (
   foodId: unknown,
   price: number,
-  options: { quantity?: number | string; unit?: string } = {}
+  options: {
+    quantity?: number | string
+    unit?: string
+    user?: IUser
+  } = {}
 ): Promise<void> => {
   const id = idOf(foodId)
   if (!id || !(price > 0)) return
@@ -338,8 +342,21 @@ export const rememberUserPriceOnFoodItem = async (
   if (unit === "kpl" && Number.isFinite(quantity) && quantity > 0) {
     stored = roundMoney(price / quantity)
   }
+
+  const ownerScope = options.user
+    ? await (async () => {
+        const householdId = resolveHouseholdId(options.user as IUser)
+        const memberIds = householdId
+          ? await getHouseholdMemberIds(householdId)
+          : []
+        return memberIds.length > 0
+          ? { user: { $in: memberIds } }
+          : { user: (options.user as IUser)._id }
+      })()
+    : {}
+
   await FoodItem.updateOne(
-    { _id: id },
+    { _id: id, ...ownerScope },
     { $set: { price: stored, priceSource: "user" } }
   )
 }
