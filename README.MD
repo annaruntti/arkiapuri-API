@@ -13,173 +13,12 @@ This is API for Arkiapuri mobile app. You will find mobile app project from here
 
 ## Environment Variables
 
-### Required Variables
+Canonical docs (local / staging / production, AWS secrets, `app.arkiapuri.fi`):
 
-These variables are **required** for the application to start:
+- Template: [`.env.example`](./.env.example) → copy to `.env`
+- Matrix & ops: [`docs/ENV.md`](./docs/ENV.md)
 
-#### Core Configuration
-```env
-NODE_ENV=development
-PORT=3000
-APP_URL=http://localhost:3000
-CORS_ORIGIN=http://localhost:8081
-```
-
-#### Database
-```env
-MONGODB_URI=mongodb://localhost:27017/arkiapuri
-# Or for MongoDB Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/arkiapuri?retryWrites=true&w=majority
-```
-
-#### Authentication
-```env
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-```
-
-#### Cloudinary (Image Uploads) - REQUIRED
-```env
-CLOUDINARY_USER_NAME=your-cloudinary-username
-CLOUDINARY_API_KEY=your-cloudinary-api-key
-CLOUDINARY_API_KEY_SECRET=your-cloudinary-api-secret
-```
-
-### Optional but Recommended Variables
-
-#### Email Service (for Family Invitations)
-```env
-EMAIL_SERVICE=gmail
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASSWORD=your-app-specific-password-or-api-key
-EMAIL_FROM_ADDRESS=your-email@gmail.com
-FRONTEND_URL=arkiapuri://
-WEB_URL=http://localhost:8081
-```
-
-**Note:** The password reset functionality also accepts:
-- `EMAIL_PASS` (alternative to `EMAIL_PASSWORD`)
-- `EMAIL_FROM` (alternative to `EMAIL_FROM_ADDRESS`)
-
-#### OAuth (for Social Login) - Optional
-```env
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-APPLE_CLIENT_ID=your-apple-client-id
-APPLE_SERVICE_ID=your-apple-service-id
-APPLE_CLIENT_SECRET=your-apple-client-secret
-FACEBOOK_APP_ID=your-facebook-app-id
-FACEBOOK_APP_SECRET=your-facebook-app-secret
-```
-
-#### Gemini AI (pantry scanner) - Optional
-```env
-GEMINI_API_KEY=your-gemini-api-key
-AI_MODEL=gemini-3.5-flash-lite
-AI_GRANT_PREMIUM=true
-AI_MONTHLY_CREDIT_LIMIT=40
-AI_MONTHLY_BUDGET_USD=20
-```
-
-`GEMINI_API_KEY` comes from [Google AI Studio](https://aistudio.google.com/apikey). Without it the API starts, but pantry scan returns `not_configured`.
-
-For local testing, set `AI_GRANT_PREMIUM=true` so the household (or solo user) is treated as premium without a paid plan. Do not enable this in production.
-
-#### Error Tracking (for production) - Optional
-```env
-SENTRY_DSN=your-sentry-dsn-url
-```
-
-### Email Service Setup
-
-#### Using Gmail
-1. Enable 2-Factor Authentication on your Gmail account
-2. Generate an App Password: https://myaccount.google.com/apppasswords
-3. Set environment variables:
-   ```env
-   EMAIL_SERVICE=gmail
-   EMAIL_USER=your-email@gmail.com
-   EMAIL_PASSWORD=your-app-specific-password
-   EMAIL_FROM_ADDRESS=your-email@gmail.com
-   ```
-
-#### Using SendGrid
-1. Sign up for SendGrid account
-2. Create an API key
-3. Set environment variables:
-   ```env
-   EMAIL_SERVICE=sendgrid
-   EMAIL_USER=apikey
-   EMAIL_PASSWORD=your-sendgrid-api-key
-   EMAIL_FROM_ADDRESS=noreply@yourdomain.com
-   ```
-   **Note:** Verify your sender email in SendGrid dashboard
-
-#### For Development/Testing
-Use Mailtrap (https://mailtrap.io) to test emails without sending real ones:
-```env
-EMAIL_SERVICE=smtp
-EMAIL_USER=your-mailtrap-username
-EMAIL_PASSWORD=your-mailtrap-password
-```
-
-### Complete .env Template
-
-Here's a complete template for your `.env` file:
-
-```env
-# ============================================
-# ARKIAPURI API - Environment Variables
-# ============================================
-
-# Core Configuration
-NODE_ENV=development
-PORT=3000
-APP_URL=http://localhost:3000
-CORS_ORIGIN=http://localhost:8081
-
-# Database
-MONGODB_URI=mongodb://localhost:27017/arkiapuri
-# Or for MongoDB Atlas:
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/arkiapuri?retryWrites=true&w=majority
-
-# Authentication
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
-
-# Cloudinary (Image Uploads) - REQUIRED
-CLOUDINARY_USER_NAME=your-cloudinary-username
-CLOUDINARY_API_KEY=your-cloudinary-api-key
-CLOUDINARY_API_KEY_SECRET=your-cloudinary-api-secret
-
-# Email Service (Family Invitations)
-EMAIL_SERVICE=gmail
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASSWORD=your-app-specific-password-or-api-key
-EMAIL_FROM_ADDRESS=your-email@gmail.com
-FRONTEND_URL=arkiapuri://
-WEB_URL=http://localhost:8081
-
-# OAuth (Optional - for social login)
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-APPLE_CLIENT_ID=your-apple-client-id
-APPLE_SERVICE_ID=your-apple-service-id
-APPLE_CLIENT_SECRET=your-apple-client-secret
-FACEBOOK_APP_ID=your-facebook-app-id
-FACEBOOK_APP_SECRET=your-facebook-app-secret
-
-# Gemini AI (pantry scanner)
-GEMINI_API_KEY=your-gemini-api-key
-# AI_MODEL=gemini-3.5-flash-lite
-# Local only: treat the household as premium so scan works without billing
-AI_GRANT_PREMIUM=true
-# AI_MONTHLY_CREDIT_LIMIT=40
-# AI_MONTHLY_BUDGET_USD=20
-
-# Error Tracking (Optional - for production)
-SENTRY_DSN=your-sentry-dsn-url
-```
-
-**Important:** Make sure to replace all placeholder values with your actual credentials. The minimum required variables are: `MONGODB_URI`, `JWT_SECRET`, `CORS_ORIGIN`, and all `CLOUDINARY_*` variables.
+Minimum to boot locally: `MONGODB_URI`, `JWT_SECRET` (≥32 chars), `CORS_ORIGIN`, and Cloudinary keys. Generate a secret with `openssl rand -hex 32`. Never set `AI_GRANT_PREMIUM=true` when `NODE_ENV=production`.
 
 ## API Endpoints
 
@@ -254,20 +93,12 @@ To improve how accurately pantry scan names products in the app, run `npm run ev
 ### Development Mode
 
 1. First clone or download this project
-2. Use node version 18
+2. Use Node.js 22 LTS (see Dockerfile)
 3. Install dependencies: `npm install`
-4. Create `.env` file with required variables (see [Environment Variables](#environment-variables) section above):
-   - `MONGODB_URI` - MongoDB connection string
-   - `JWT_SECRET` - Secret key for JWT tokens
-   - `CORS_ORIGIN` - Allowed CORS origins
-   - `CLOUDINARY_USER_NAME` - Cloudinary username
-   - `CLOUDINARY_API_KEY` - Cloudinary API key
-   - `CLOUDINARY_API_KEY_SECRET` - Cloudinary API secret
-   
-   **Quick Setup:** Copy `.env.example` to `.env` and update with your actual credentials.
+4. Copy `.env.example` → `.env` and fill secrets (see [`docs/ENV.md`](./docs/ENV.md)).
 5. Run the server:
-   - `npm run dev` for development with nodemon
-   - `npm start` for production mode
+   - `npm run dev` for development
+   - `npm start` for production (`node dist/app.js` after `npm run build`)
 
 ### Docker Development
 
