@@ -8,6 +8,7 @@ import { getCanonicalPantry } from "../helpers/pantryHelpers"
 import { shareHouseholdDocuments } from "../helpers/householdHelpers"
 import { sendFamilyInvitation } from "./emailService"
 import { householdIdForUser } from "./householdAccess"
+import { parseInvitationToken } from "../helpers/invitationToken"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -76,6 +77,30 @@ export const inviteUserToHousehold = async (
     }
   }
 
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const invitesLastDay = await Invitation.countDocuments({
+    invitedBy: user._id,
+    createdAt: { $gte: dayAgo },
+  })
+  if (invitesLastDay >= 20) {
+    return {
+      status: "bad_request",
+      message: "Liian monta kutsua tänään. Yritä huomenna uudelleen.",
+    }
+  }
+
+  const pendingForHousehold = await Invitation.countDocuments({
+    household: household._id,
+    status: "pending",
+    expiresAt: { $gt: new Date() },
+  })
+  if (pendingForHousehold >= 50) {
+    return {
+      status: "bad_request",
+      message: "Perheellä on liian monta odottavaa kutsua",
+    }
+  }
+
   const invitationToken = randomUUID()
   const invitation = new Invitation({
     email: email.toLowerCase(),
@@ -124,14 +149,18 @@ export type AcceptInvitationResult =
       household: IHousehold | null
       message: string
     }
-  | { status: "bad_request" | "not_found"; message: string }
+  | {
+      status: "bad_request" | "not_found" | "forbidden"
+      message: string
+    }
 
 export const acceptHouseholdInvitation = async (
   user: IUser,
-  invitationToken?: string
+  invitationToken?: unknown
 ): Promise<AcceptInvitationResult> => {
-  if (!invitationToken) {
-    return { status: "bad_request", message: "Kutsukoodi vaaditaan" }
+  const parsed = parseInvitationToken(invitationToken)
+  if (parsed.ok === false) {
+    return { status: "bad_request", message: parsed.message }
   }
 
   if (user.household) {
@@ -142,7 +171,7 @@ export const acceptHouseholdInvitation = async (
   }
 
   const invitation = await Invitation.findOne({
-    invitationToken,
+    invitationToken: parsed.token,
   }).populate("household")
 
   if (!invitation) {
@@ -168,9 +197,10 @@ export const acceptHouseholdInvitation = async (
   }
 
   if (invitation.email !== user.email.toLowerCase()) {
-    console.warn(
-      `User ${user.email} accepting invitation for ${invitation.email}`
-    )
+    return {
+      status: "forbidden",
+      message: "Kutsu on lähetetty toiselle sähköpostiosoitteelle",
+    }
   }
 
   household.members.push({

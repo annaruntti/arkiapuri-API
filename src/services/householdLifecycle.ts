@@ -14,6 +14,7 @@ import {
   restoreUserHouseholdLink,
   serializeHouseholdMembers,
 } from "./householdAccess"
+import { parseInvitationToken } from "../helpers/invitationToken"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -154,20 +155,16 @@ export const updateHouseholdForUser = async (
 export const getInvitationByTokenLookup = async (
   token?: string
 ): Promise<HouseholdLifecycleResult> => {
-  if (!token) {
-    return { status: "bad_request", message: "Kutsukoodi vaaditaan" }
+  const parsed = parseInvitationToken(token)
+  if (parsed.ok === false) {
+    return { status: "bad_request", message: parsed.message }
   }
 
-  const invitation = await Invitation.findOne({ invitationToken: token })
-    .populate("household", "name members")
-    .populate("invitedBy", "username email")
-    .populate({
-      path: "household",
-      populate: {
-        path: "members.userId",
-        select: "username email",
-      },
-    })
+  const invitation = await Invitation.findOne({
+    invitationToken: parsed.token,
+  })
+    .populate("household", "name")
+    .populate("invitedBy", "username name")
 
   if (!invitation) {
     return {
@@ -187,15 +184,22 @@ export const getInvitationByTokenLookup = async (
     }
   }
 
+  const household = invitation.household as unknown as {
+    name?: string
+  } | null
+  const invitedBy = invitation.invitedBy as unknown as {
+    username?: string
+    name?: string
+  } | null
+
   return {
     status: "ok",
     invitation: {
-      _id: invitation._id,
-      email: invitation.email,
       status: invitation.status,
-      household: invitation.household,
-      invitedBy: invitation.invitedBy,
-      createdAt: invitation.createdAt,
+      household: household ? { name: household.name } : null,
+      invitedBy: invitedBy
+        ? { displayName: invitedBy.name || invitedBy.username || "Perhe" }
+        : null,
       expiresAt: invitation.expiresAt,
     },
   }

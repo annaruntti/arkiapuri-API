@@ -1,4 +1,5 @@
 import nodemailer, { Transporter } from "nodemailer"
+import { escapeHtml } from "../helpers/escapeHtml"
 
 let transporter: Transporter | null = null
 let transporterInitialized = false
@@ -114,9 +115,14 @@ export const sendFamilyInvitation = async ({
 
   if (!tp) {
     console.log("Email not configured - would have sent invitation to:", to)
-    console.log("Invite link:", inviteLink)
     return { success: false, message: "Email service not configured" }
   }
+
+  const safeInviter = escapeHtml(inviterName)
+  const safeHousehold = escapeHtml(householdName)
+  const safeInviteLink = escapeHtml(inviteLink)
+  const safeWebInviteLink = escapeHtml(webInviteLink)
+  const safeToken = escapeHtml(invitationToken)
 
   const mailOptions = {
     from: getEmailFrom(),
@@ -154,7 +160,7 @@ export const sendFamilyInvitation = async ({
           <div class="header"><h1>Arkiapuri</h1></div>
           <div class="content">
             <h2>Hei!</h2>
-            <p><strong>${inviterName}</strong> on kutsunut sinut liittymään perheeseen <span class="household-name">"${householdName}"</span> Arkiapuri-sovelluksessa.</p>
+            <p><strong>${safeInviter}</strong> on kutsunut sinut liittymään perheeseen <span class="household-name">"${safeHousehold}"</span> Arkiapuri-sovelluksessa.</p>
             <p>Arkiapuri on perheen arjen helpottamiseen suunniteltu sovellus, jossa voit:</p>
             <ul>
               <li>Suunnitella aterioita yhdessä perheen kanssa</li>
@@ -163,14 +169,14 @@ export const sendFamilyInvitation = async ({
               <li>Jakaa reseptejä ja ruokavinkkejä</li>
             </ul>
             <div class="button-container">
-              <a href="${webInviteLink}" class="button">Hyväksy kutsu</a>
+              <a href="${safeWebInviteLink}" class="button">Hyväksy kutsu</a>
             </div>
             <p style="text-align: center; color: #666; font-size: 14px; margin-top: 20px;">
               <strong>Mobiilisovelluksessa?</strong> Käytä tätä linkkiä:<br>
-              <a href="${inviteLink}" style="color: #5844BB; word-break: break-all; display: inline-block; margin-top: 5px;">${inviteLink}</a>
+              <a href="${safeInviteLink}" style="color: #5844BB; word-break: break-all; display: inline-block; margin-top: 5px;">${safeInviteLink}</a>
             </p>
             <p style="text-align: center; color: #999; font-size: 12px; margin-top: 15px;">
-              Kutsutunnus: <code style="background: #f5f5f5; padding: 3px 8px; border-radius: 3px; font-size: 11px;">${invitationToken}</code>
+              Kutsutunnus: <code style="background: #f5f5f5; padding: 3px 8px; border-radius: 3px; font-size: 11px;">${safeToken}</code>
             </p>
             <div class="warning">
               Jos sinulla ei ole vielä Arkiapuri-tiliä, voit luoda sen kutsun hyväksymisen yhteydessä.
@@ -235,7 +241,8 @@ export const sendPasswordResetEmail = async ({
     }
   }
 
-  const displayName = name || "käyttäjä"
+  const displayName = escapeHtml(name || "käyttäjä")
+  const safeResetUrl = escapeHtml(resetUrl)
   const mailOptions = {
     from: getEmailFrom(),
     to,
@@ -246,7 +253,7 @@ export const sendPasswordResetEmail = async ({
         <p style="color: #000000; margin: 0 0 12px;">Hei ${displayName},</p>
         <p style="color: #000000; margin: 0 0 12px;">Olet pyytänyt salasanan vaihtoa Arkiapuri-sovellukseen.</p>
         <p style="color: #000000; margin: 0 0 20px;">Klikkaa alla olevaa painiketta vaihtaaksesi salasanasi:</p>
-        <a href="${resetUrl}" style="display: inline-block; background-color: #AE9CFC; color: #000000 !important; padding: 12px 24px; text-decoration: none; border-radius: 25px; font-weight: 600; font-size: 15px; margin: 8px 0 20px;">
+        <a href="${safeResetUrl}" style="display: inline-block; background-color: #AE9CFC; color: #000000 !important; padding: 12px 24px; text-decoration: none; border-radius: 25px; font-weight: 600; font-size: 15px; margin: 8px 0 20px;">
           Vaihda salasana
         </a>
         <p style="color: #000000; margin: 0 0 12px;">Tämä linkki on voimassa 1 tunnin ajan.</p>
@@ -263,6 +270,46 @@ export const sendPasswordResetEmail = async ({
     return { success: true, messageId: info.messageId }
   } catch (error: any) {
     console.error("Error sending password reset email:", error)
+    return { success: false, error: error.message }
+  }
+}
+
+export const sendEmailVerification = async ({
+  to,
+  name,
+  verifyUrl,
+}: {
+  to: string
+  name?: string
+  verifyUrl: string
+}): Promise<EmailResult> => {
+  const tp = getTransporter()
+  if (!tp) {
+    return { success: false, message: "Email service not configured" }
+  }
+
+  const displayName = escapeHtml(name || "käyttäjä")
+  const safeUrl = escapeHtml(verifyUrl)
+  try {
+    const info = await tp.sendMail({
+      from: getEmailFrom(),
+      to,
+      subject: "Arkiapuri - Vahvista sähköpostiosoite",
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #000000; line-height: 1.6;">
+          <h2 style="color: #5844BB;">Vahvista sähköpostiosoite</h2>
+          <p>Hei ${displayName},</p>
+          <p>Vahvista sähköpostiosoitteesi klikkaamalla alla olevaa painiketta:</p>
+          <a href="${safeUrl}" style="display: inline-block; background-color: #AE9CFC; color: #000000 !important; padding: 12px 24px; text-decoration: none; border-radius: 25px; font-weight: 600;">
+            Vahvista sähköposti
+          </a>
+          <p>Linkki on voimassa 24 tuntia.</p>
+        </div>
+      `,
+      text: `Hei ${name || "käyttäjä"},\n\nVahvista sähköpostiosoitteesi: ${verifyUrl}\n\nLinkki on voimassa 24 tuntia.`,
+    })
+    return { success: true, messageId: info.messageId }
+  } catch (error: any) {
     return { success: false, error: error.message }
   }
 }

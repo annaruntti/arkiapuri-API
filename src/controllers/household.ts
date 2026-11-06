@@ -282,7 +282,12 @@ export const acceptInvitation = async (
     )
 
     if (result.status !== "ok") {
-      const statusCode = result.status === "not_found" ? 404 : 400
+      const statusCode =
+        result.status === "not_found"
+          ? 404
+          : result.status === "forbidden"
+            ? 403
+            : 400
       return res.status(statusCode).json({
         success: false,
         message: result.message,
