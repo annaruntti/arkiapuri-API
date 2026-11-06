@@ -1,20 +1,16 @@
-# Use Node.js LTS version
-FROM node:18-alpine
+# Supported Node LTS
+FROM node:22-alpine
 
-# Create app directory
 WORKDIR /usr/src/app
 
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
 RUN npm install
 
-# Copy app source
 COPY . .
+RUN npm run build && npm prune --omit=dev
 
-# Expose the port your app runs on
+RUN chown -R node:node /usr/src/app
+USER node
+
 EXPOSE 3000
-
-# Start the application
-CMD ["npm", "start"] 
+CMD ["node", "dist/app.js"]
