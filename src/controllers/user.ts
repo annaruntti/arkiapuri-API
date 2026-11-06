@@ -38,7 +38,8 @@ export const createUser = async (
         message: result.message,
       })
     }
-    res.json({ success: true, user: result.user })
+    const { toPublicUser } = require("../helpers/userDto") as typeof import("../helpers/userDto")
+    res.json({ success: true, user: toPublicUser(result.user) })
   } catch (error: unknown) {
     console.error("Error creating user:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -61,7 +62,12 @@ export const userSignIn = async (
         message: result.message,
       })
     }
-    res.json({ success: true, user: result.user, token: result.token })
+    const { toPublicUser } = require("../helpers/userDto") as typeof import("../helpers/userDto")
+    res.json({
+      success: true,
+      user: toPublicUser(result.user),
+      token: result.token,
+    })
   } catch (error: unknown) {
     console.error("Error signing in:", error)
     res.status(500).json({ success: false, error: getErrorMessage(error) })
@@ -86,17 +92,27 @@ export const uploadProfile = async (
       })
     }
 
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      public_id: `${req.user._id}_profile`,
-      width: 500,
-      height: 500,
-      crop: "fill",
-    })
+    try {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        public_id: `${req.user._id}_profile`,
+        width: 500,
+        height: 500,
+        crop: "fill",
+      })
 
-    await User.findByIdAndUpdate(req.user._id, { avatar: result.url })
-    res
-      .status(201)
-      .json({ success: true, message: "Your profile has updated!" })
+      await User.findByIdAndUpdate(req.user._id, {
+        avatar: result.secure_url || result.url,
+      })
+      res
+        .status(201)
+        .json({ success: true, message: "Your profile has updated!" })
+    } finally {
+      try {
+        fs.unlinkSync(req.file.path)
+      } catch {
+        /* ignore cleanup errors */
+      }
+    }
   } catch (error: unknown) {
     console.log("Error while uploading profile image", getErrorMessage(error))
     res
@@ -135,7 +151,8 @@ export const getUserProfile = async (
       })
     }
 
-    res.json({ success: true, user })
+    const { toPublicUser } = require("../helpers/userDto") as typeof import("../helpers/userDto")
+    res.json({ success: true, user: toPublicUser(user) })
   } catch (error: unknown) {
     res.status(500).json({
       success: false,
@@ -215,10 +232,11 @@ export const updateUserProfile = async (
     const token = passwordChanged
       ? signUserToken(user, EMAIL_TOKEN_TTL)
       : undefined
+    const { toPublicUser } = require("../helpers/userDto") as typeof import("../helpers/userDto")
 
     res.json({
       success: true,
-      user: updatedUser,
+      user: toPublicUser(updatedUser),
       ...(token ? { token } : {}),
       message: "Profile updated successfully",
     })
@@ -268,6 +286,36 @@ export const deleteUserAccount = async (
 
     await Invitation.deleteMany({ invitedBy: userId })
     await Invitation.deleteMany({ email: user.email.toLowerCase() })
+
+    // Cascade personal data that is not shared via remaining household.
+    const Meal = resolveModule(require("../models/meal"))
+    const FoodItem = resolveModule(require("../models/foodItem"))
+    const ShoppingList = resolveModule(require("../models/shoppingList"))
+    const Pantry = resolveModule(require("../models/pantry"))
+
+    const soleOwnerHouseholdDeleted =
+      user.household &&
+      !(await Household.findById(user.household))
+
+    if (soleOwnerHouseholdDeleted || !user.household) {
+      await Meal.deleteMany({ user: userId })
+      await FoodItem.deleteMany({ user: userId })
+      await ShoppingList.deleteMany({ userId })
+      await Pantry.deleteMany({ userId })
+    } else {
+      // Keep household-shared docs; remove only user-owned catalog leftovers
+      // that are not referenced by household lists (best-effort).
+      await FoodItem.deleteMany({ user: userId })
+    }
+
+    if (user.profileImage?.publicId && isCloudinaryConfigured()) {
+      try {
+        await cloudinary.uploader.destroy(user.profileImage.publicId)
+      } catch {
+        /* ignore */
+      }
+    }
+
     await User.findByIdAndDelete(userId)
 
     res.json({
@@ -318,7 +366,9 @@ export const uploadProfileImage = async (
 
       fs.unlinkSync(req.file.path)
 
-      res.json({ success: true, user })
+      const { toPublicUser } =
+        require("../helpers/userDto") as typeof import("../helpers/userDto")
+      res.json({ success: true, user: toPublicUser(user) })
     } catch (uploadError: unknown) {
       if (req.file.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path)

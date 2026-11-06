@@ -17,9 +17,8 @@ const unauthorized = (res: Response, message = "unauthorized access!") => {
 
 const getBearerToken = (header?: string): string | null => {
   if (!header) return null
-  if (header.startsWith("Bearer ")) return header.slice(7).trim() || null
-  const parts = header.split(" ")
-  return parts[1] || null
+  if (!header.startsWith("Bearer ")) return null
+  return header.slice(7).trim() || null
 }
 
 export const isAuth = async (
@@ -35,10 +34,9 @@ export const isAuth = async (
   }
 
   try {
-    const decode = jwt.verify(
-      token,
-      process.env.JWT_SECRET as string
-    ) as AuthTokenPayload
+    const decode = jwt.verify(token, process.env.JWT_SECRET as string, {
+      algorithms: ["HS256"],
+    }) as AuthTokenPayload
 
     const user = await User.findById(decode.userId).populate("household")
     if (!user) {

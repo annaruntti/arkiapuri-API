@@ -26,6 +26,8 @@ export interface IUser extends Document {
   preferences: IUserPreferences
   resetPasswordToken?: string
   resetPasswordExpiry?: Date
+  emailVerifyToken?: string
+  emailVerifyExpiry?: Date
   household?: mongoose.Types.ObjectId | null
   tokenVersion: number
   plan: "free" | "premium"
@@ -100,6 +102,8 @@ const userSchema = new Schema<IUser>(
     },
     resetPasswordToken: String,
     resetPasswordExpiry: Date,
+    emailVerifyToken: String,
+    emailVerifyExpiry: Date,
     household: {
       type: Schema.Types.ObjectId,
       ref: "Household",

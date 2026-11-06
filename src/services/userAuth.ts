@@ -44,8 +44,15 @@ export const registerUser = async ({
     }
   }
 
-  const user = new User({ username, email, password })
+  const user = new User({ username, email, password, isEmailVerified: false })
   await user.save()
+
+  try {
+    const { issueEmailVerification } = require("./emailVerify") as typeof import("./emailVerify")
+    await issueEmailVerification(user)
+  } catch (verifyError) {
+    console.error("Failed to send email verification:", verifyError)
+  }
 
   const pendingInvitation = await Invitation.findOne({
     email: email.toLowerCase(),
@@ -101,7 +108,7 @@ export const signInUser = async ({
   if (!user) {
     return {
       status: "bad_request",
-      message: "user not found, with the given email!",
+      message: "email / password does not match!",
     }
   }
 

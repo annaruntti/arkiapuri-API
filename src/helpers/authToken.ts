@@ -19,7 +19,7 @@ export const signUserToken = (
       tokenVersion: Number(user.tokenVersion) || 0,
     },
     process.env.JWT_SECRET as string,
-    { expiresIn }
+    { expiresIn, algorithm: "HS256" }
   )
 
 export const revokeUserTokens = async (userId: unknown): Promise<void> => {
