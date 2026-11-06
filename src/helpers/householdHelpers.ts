@@ -84,9 +84,17 @@ export const getHouseholdMemberIds = async (
   return [...ids.values()]
 }
 
-const untaggedHousehold = {
-  $or: [{ household: null }, { household: { $exists: false } }],
-}
+const untaggedHouseholdFilter = (
+  ownerField: "userId" | "user",
+  memberIds: mongoose.Types.ObjectId[]
+) =>
+  mongoose.trusted({
+    [ownerField]: mongoose.trusted({ $in: memberIds }),
+    $or: [
+      { household: null },
+      { household: mongoose.trusted({ $exists: false }) },
+    ],
+  })
 
 /**
  * Stamp household on members' existing pantry, shopping lists and meals so
@@ -107,17 +115,16 @@ export const shareHouseholdDocuments = async (
 
   await Promise.all([
     Pantry.updateMany(
-      { userId: { $in: memberIds }, ...untaggedHousehold },
+      untaggedHouseholdFilter("userId", memberIds),
       { $set: { household: householdId } }
     ),
     ShoppingList.updateMany(
-      { userId: { $in: memberIds }, ...untaggedHousehold },
+      untaggedHouseholdFilter("userId", memberIds),
       { $set: { household: householdId } }
     ),
-    Meal.updateMany(
-      { user: { $in: memberIds }, ...untaggedHousehold },
-      { $set: { household: householdId } }
-    ),
+    Meal.updateMany(untaggedHouseholdFilter("user", memberIds), {
+      $set: { household: householdId },
+    }),
   ])
 
   return memberIds
@@ -143,7 +150,11 @@ export const getDataQuery = async (
       ? memberIds
       : [user._id as mongoose.Types.ObjectId]
 
-  return {
-    $or: [{ [userField]: { $in: ownerIds } }, { household: householdId }],
-  }
+  // trusted(): keeps $in/$or intact even if sanitizeFilter is enabled elsewhere.
+  return mongoose.trusted({
+    $or: [
+      { [userField]: mongoose.trusted({ $in: ownerIds }) },
+      { household: householdId },
+    ],
+  })
 }

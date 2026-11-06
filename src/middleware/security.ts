@@ -36,11 +36,20 @@ const securityMiddleware = {
     "Liian monta tuotetta koskevaa hakua. Yritä hetken kuluttua uudelleen."
   ),
 
-  aiRateLimiter: createLimiter(
-    FIFTEEN_MINUTES,
-    20,
-    "Liian monta AI-pyyntöä. Yritä hetken kuluttua uudelleen."
-  ),
+  aiRateLimiter: rateLimit({
+    windowMs: FIFTEEN_MINUTES,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: jsonMessage(
+      "Liian monta AI-pyyntöä. Yritä hetken kuluttua uudelleen."
+    ),
+    keyGenerator: (req) => {
+      const userId = (req as { user?: { _id?: unknown } }).user?._id
+      if (userId) return `ai:user:${String(userId)}`
+      return `ai:ip:${req.ip || "unknown"}`
+    },
+  }),
 
   helmet: helmet({
     contentSecurityPolicy: {

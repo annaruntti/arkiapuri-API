@@ -19,6 +19,11 @@ const connectDB = async (): Promise<void> => {
       family: 4,
     }
 
+    // Explicitly off: sanitizeFilter rewrites legitimate $in/$or/$exists into
+    // non-matching $eq and breaks household pantry/meal/list queries.
+    // Request bodies are sanitized in app.ts via express-mongo-sanitize instead.
+    mongoose.set("sanitizeFilter", false)
+
     await mongoose.connect(uri, options)
     console.log("MongoDB connected successfully")
 

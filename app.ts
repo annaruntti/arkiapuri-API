@@ -8,6 +8,7 @@ import swaggerUi from "swagger-ui-express"
 import swaggerSpec from "./src/utils/swagger"
 import compression from "compression"
 import helmet from "helmet"
+import mongoSanitize from "express-mongo-sanitize"
 
 // Load env variables first
 import dotenv from "dotenv"
@@ -20,6 +21,24 @@ const validateEnv = (): void => {
 
   if (missing.length > 0) {
     console.error("Missing required environment variables:", missing)
+    process.exit(1)
+  }
+
+  const jwtSecret = process.env.JWT_SECRET || ""
+  if (jwtSecret.length < 32) {
+    console.error(
+      "JWT_SECRET must be at least 32 characters. Generate with: openssl rand -hex 32"
+    )
+    process.exit(1)
+  }
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AI_GRANT_PREMIUM === "true"
+  ) {
+    console.error(
+      "AI_GRANT_PREMIUM=true is not allowed in production. Disable the grant flag."
+    )
     process.exit(1)
   }
 
@@ -116,17 +135,29 @@ app.use(
         }
 
         console.log("CORS blocked origin:", origin)
-        return callback(null, true) // Allow all in development for now
+        return callback(new Error("Not allowed by CORS"))
       }
     },
     credentials: true,
   })
 )
 
+// Rate-limit before expensive body parsing on AI routes.
+app.use(rateLimiter)
+
 // Keep the large JSON body limit on AI image routes only; other routes stay small.
 app.use("/ai/pantry-scan", express.json({ limit: "8mb" }))
 app.use("/ai/dish-from-photo", express.json({ limit: "8mb" }))
 app.use(express.json({ limit: "200kb" }))
+
+// Strip $-operators from req.body/query/params (NoSQL injection). Must run
+// after body parsers; do not use mongoose sanitizeFilter (breaks $in queries).
+app.use(
+  mongoSanitize({
+    replaceWith: "_",
+    allowDots: true,
+  })
+)
 
 // Creates uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads")
@@ -134,8 +165,6 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir)
 }
 
-// Adds rate limiter before routes
-app.use(rateLimiter)
 app.use(requestLogger)
 
 // Adds compression after cors and before routes
