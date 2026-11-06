@@ -1,7 +1,9 @@
 import crypto from "crypto"
+import fs from "fs"
 import multer, { FileFilterCallback } from "multer"
 import path from "path"
-import { Request } from "express"
+import { NextFunction, Request, Response } from "express"
+import { assertImageMagicBytes } from "../helpers/imageMagic"
 
 const storage = multer.diskStorage({
   destination: function (
@@ -68,3 +70,31 @@ export const profileUpload = multer({
   limits: uploadLimits,
   fileFilter: imageFileFilter,
 })
+
+/** After multer: verify magic bytes and delete the temp file on mismatch. */
+export const requireImageMagicBytes = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.file?.path) {
+    next()
+    return
+  }
+
+  try {
+    assertImageMagicBytes(req.file.path)
+    next()
+  } catch (error: unknown) {
+    try {
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path)
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+    const message =
+      error instanceof Error ? error.message : "Invalid image upload"
+    res.status(400).json({ success: false, message })
+  }
+}

@@ -16,7 +16,10 @@ import {
   userVlidation,
   validateUserSignIn,
 } from "../middleware/validation/user"
-import { profileUpload } from "../middleware/uploadImage"
+import {
+  profileUpload,
+  requireImageMagicBytes,
+} from "../middleware/uploadImage"
 
 const router = Router()
 
@@ -39,6 +42,7 @@ router.post(
   "/upload-profile",
   isAuth,
   profileUpload.single("profile"),
+  requireImageMagicBytes,
   uploadProfile
 )
 router.get("/profile", isAuth, getUserProfile)
@@ -48,6 +52,7 @@ router.post(
   "/profile/image",
   isAuth,
   profileUpload.single("profileImage"),
+  requireImageMagicBytes,
   uploadProfileImage
 )
 

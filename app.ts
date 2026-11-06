@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from "express"
 import cors from "cors"
 import fs from "fs"
 import path from "path"
-import { rateLimiter } from "./src/middleware/security"
+import { aiRateLimiter, rateLimiter } from "./src/middleware/security"
 import requestLogger from "./src/middleware/logger"
 import swaggerUi from "swagger-ui-express"
 import swaggerSpec from "./src/utils/swagger"
@@ -144,6 +144,9 @@ app.use(
 
 // Rate-limit before expensive body parsing on AI routes.
 app.use(rateLimiter)
+// IP/user AI limiter before parsing large vision payloads (DoS / cost control).
+app.use("/ai/pantry-scan", aiRateLimiter)
+app.use("/ai/dish-from-photo", aiRateLimiter)
 
 // Keep the large JSON body limit on AI image routes only; other routes stay small.
 app.use("/ai/pantry-scan", express.json({ limit: "8mb" }))

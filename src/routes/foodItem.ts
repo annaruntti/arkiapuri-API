@@ -1,6 +1,9 @@
 import { Router } from "express"
 import { isAuth } from "../middleware/auth"
-import { foodItemUpload } from "../middleware/uploadImage"
+import {
+  foodItemUpload,
+  requireImageMagicBytes,
+} from "../middleware/uploadImage"
 import {
   getFoodItems,
   createFoodItem,
@@ -26,7 +29,13 @@ router.put("/food-items/:id", isAuth, updateFoodItem)
 router.delete("/food-items/:id", isAuth, deleteFoodItem)
 router.put("/food-items/:foodItemId/quantity", isAuth, updateQuantity)
 router.post("/food-items/:foodItemId/move", isAuth, moveItem)
-router.post("/food-items/:foodItemId/image", isAuth, foodItemUpload, uploadFoodItemImage)
+router.post(
+  "/food-items/:foodItemId/image",
+  isAuth,
+  foodItemUpload,
+  requireImageMagicBytes,
+  uploadFoodItemImage
+)
 router.delete("/food-items/:foodItemId/image", isAuth, removeFoodItemImage)
 
 export default router
