@@ -4,6 +4,7 @@ import type { IInvitation } from "../models/invitation"
 import type { IUser, IUserModel } from "../models/user"
 import { resolveModule } from "../helpers/controllerUtils"
 import { householdIdForUser, resolveRefId } from "./householdAccess"
+import { forkHouseholdDataForDepartingUser } from "./householdLeaveFork"
 
 const Household = resolveModule<Model<IHousehold>>(
   require("../models/household")
@@ -42,6 +43,9 @@ export const leaveHouseholdMembership = async (
     }
   }
 
+  const householdObjectId = household._id
+  await forkHouseholdDataForDepartingUser(user, householdObjectId)
+
   household.members = household.members.filter(
     (member) => resolveRefId(member.userId) !== userId.toString()
   )
@@ -49,7 +53,11 @@ export const leaveHouseholdMembership = async (
   await household.save()
   await User.findByIdAndUpdate(userId, { household: null })
 
-  return { status: "ok", message: "Poistuit perheestä onnistuneesti" }
+  return {
+    status: "ok",
+    message:
+      "Poistuit perheestä onnistuneesti. Perheen reseptit ja tuotteet kopioitiin tilillesi.",
+  }
 }
 
 export const removeHouseholdMember = async (
@@ -95,6 +103,14 @@ export const removeHouseholdMember = async (
     .map((member) => resolveRefId(member.userId))
     .filter(Boolean)
 
+  // Fork while membership is still intact so household-scoped queries see shared data.
+  for (const removedId of removedUserIds) {
+    const departing = await User.findById(removedId)
+    if (departing) {
+      await forkHouseholdDataForDepartingUser(departing, household._id)
+    }
+  }
+
   household.members = nextMembers
   await household.save()
 
@@ -105,7 +121,11 @@ export const removeHouseholdMember = async (
     )
   }
 
-  return { status: "ok", message: "Jäsen poistettu onnistuneesti" }
+  return {
+    status: "ok",
+    message:
+      "Jäsen poistettu onnistuneesti. Hänen tililleen kopioitiin perheen aiempi data.",
+  }
 }
 
 export const cancelHouseholdInvitation = async (
