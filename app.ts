@@ -75,6 +75,7 @@ import shoppingListRouter from "./src/routes/shoppingList"
 import pantryRouter from "./src/routes/pantry"
 import openFoodFactsRouter from "./src/routes/openFoodFacts"
 import householdRouter from "./src/routes/household"
+import catalogRouter from "./src/routes/catalog"
 import aiRouter from "./src/routes/ai"
 
 const app = express()
@@ -195,6 +196,7 @@ app.use(shoppingListRouter)
 app.use(pantryRouter)
 app.use("/api/openfoodfacts", openFoodFactsRouter)
 app.use(householdRouter)
+app.use(catalogRouter)
 app.use(aiRouter)
 console.log(
   "AI routes enabled: GET /ai/entitlement, POST /ai/pantry-scan, POST /ai/dish-from-photo"
