@@ -1,6 +1,10 @@
 import type { IUser } from "../models/user"
 import { resolveModule } from "../helpers/controllerUtils"
 import type { IUserModel } from "../models/user"
+import {
+  resolvePlatformRole,
+  syncPlatformRoleForUser,
+} from "../helpers/platformAdmin"
 
 const User = resolveModule<IUserModel>(require("../models/user"))
 
@@ -38,6 +42,7 @@ export const linkOrCreateSocialUser = async (
       byProvider.profilePicture = profile.picture
       await byProvider.save()
     }
+    await syncPlatformRoleForUser(byProvider)
     return { status: "ok", user: byProvider }
   }
 
@@ -74,6 +79,7 @@ export const linkOrCreateSocialUser = async (
         byEmail.password = undefined
       }
       await byEmail.save()
+      await syncPlatformRoleForUser(byEmail)
       return { status: "ok", user: byEmail }
     }
   }
@@ -87,6 +93,7 @@ export const linkOrCreateSocialUser = async (
     profilePicture: profile.picture || undefined,
     [idField]: profile.providerId,
     isEmailVerified: providerVerified,
+    platformRole: resolvePlatformRole(placeholderEmail),
   })
   await user.save()
   return { status: "ok", user }

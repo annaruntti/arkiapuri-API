@@ -31,6 +31,8 @@ export interface IUser extends Document {
   household?: mongoose.Types.ObjectId | null
   tokenVersion: number
   plan: "free" | "premium"
+  /** App-wide role (not household member role). Synced from PLATFORM_ADMIN_EMAILS. */
+  platformRole: "user" | "admin"
   createdAt: Date
   updatedAt: Date
   // Methods
@@ -117,6 +119,11 @@ const userSchema = new Schema<IUser>(
       type: String,
       enum: ["free", "premium"],
       default: "free",
+    },
+    platformRole: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
     },
   },
   {

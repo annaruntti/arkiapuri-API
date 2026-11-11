@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 import User, { IUser } from "../models/user"
 import type { AuthTokenPayload } from "../helpers/authToken"
+import { syncPlatformRoleForUser } from "../helpers/platformAdmin"
 
 declare global {
   namespace Express {
@@ -51,7 +52,7 @@ export const isAuth = async (
       return
     }
 
-    req.user = user
+    req.user = await syncPlatformRoleForUser(user)
     next()
   } catch (error: unknown) {
     const name = error instanceof Error ? error.name : ""

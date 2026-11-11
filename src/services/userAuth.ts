@@ -4,6 +4,7 @@ import type { IInvitation } from "../models/invitation"
 import type { IUser, IUserModel } from "../models/user"
 import { resolveModule } from "../helpers/controllerUtils"
 import { EMAIL_TOKEN_TTL, signUserToken } from "../helpers/authToken"
+import { syncPlatformRoleForUser } from "../helpers/platformAdmin"
 
 const User = resolveModule<IUserModel>(require("../models/user"))
 const Household = resolveModule<Model<IHousehold>>(require("../models/household"))
@@ -44,7 +45,14 @@ export const registerUser = async ({
     }
   }
 
-  const user = new User({ username, email, password, isEmailVerified: false })
+  const { resolvePlatformRole } = require("../helpers/platformAdmin") as typeof import("../helpers/platformAdmin")
+  const user = new User({
+    username,
+    email,
+    password,
+    isEmailVerified: false,
+    platformRole: resolvePlatformRole(email),
+  })
   await user.save()
 
   try {
@@ -120,6 +128,7 @@ export const signInUser = async ({
     }
   }
 
+  await syncPlatformRoleForUser(user)
   const token = signUserToken(user, EMAIL_TOKEN_TTL)
 
   const populatedUser = await User.findById(user._id)

@@ -34,6 +34,7 @@ Legend: **R** = required · **S** = secret · **P** = public / non-secret
 | `CORS_ORIGIN` | `http://localhost:8081` | staging web origin(s) | `https://app.arkiapuri.fi` **R** | Comma-separated list OK |
 | `MONGODB_URI` | local/Atlas dev **S** | Atlas staging **S** | Atlas/AWS prod **S R** | Never share prod DB with local |
 | `JWT_SECRET` | ≥32 chars **S R** | different ≥32 **S R** | different ≥32 **S R** | `openssl rand -hex 32`; rotating logs everyone out |
+| `PLATFORM_ADMIN_EMAILS` | your email(s) | staging admins | prod admins | Comma-separated; syncs `platformRole` on auth |
 | `MOBILE_REDIRECT_URI` | `arkiapuri://auth/callback` | same or staging scheme | `arkiapuri://auth/callback` | Later: `https://app.arkiapuri.fi/auth/callback` with App Links |
 | `WEB_REDIRECT_URI` | `http://localhost:8081/AuthCallback` | staging web callback | `https://app.arkiapuri.fi/AuthCallback` **R** | OAuth returns `?code=` here |
 | `WEB_URL` | `http://localhost:8081` | staging web | `https://app.arkiapuri.fi` **R** | Invite / email-verify / reset links |
