@@ -8,6 +8,8 @@ import {
   adminListMeals,
   adminPublishFoodItem,
   adminPublishMeal,
+  adminUpdateCatalogFood,
+  adminUpdateCatalogMeal,
   copyCatalogFoodItem,
   copyCatalogMeal,
   listCatalogFoodItems,
@@ -39,6 +41,18 @@ router.post(
   isAuth,
   requirePlatformAdmin,
   adminPublishMeal
+)
+router.put(
+  "/admin/catalog/food-items/:id",
+  isAuth,
+  requirePlatformAdmin,
+  adminUpdateCatalogFood
+)
+router.put(
+  "/admin/catalog/meals/:id",
+  isAuth,
+  requirePlatformAdmin,
+  adminUpdateCatalogMeal
 )
 router.delete(
   "/admin/catalog/food-items/:id",

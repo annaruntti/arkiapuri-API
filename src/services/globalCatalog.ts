@@ -6,7 +6,12 @@ import type { IGlobalMeal } from "../models/globalMeal"
 import type { IMeal } from "../models/meal"
 import type { IUser } from "../models/user"
 import { resolveModule } from "../helpers/controllerUtils"
-import { getDataOwnership } from "../helpers/householdHelpers"
+import { foodItemOwnerFilter } from "../helpers/foodItemAccess"
+import { getDataOwnership, getDataQuery } from "../helpers/householdHelpers"
+import {
+  flattenMealFoodItems,
+  MEAL_FOOD_CATALOG_SELECT,
+} from "../helpers/mealIngredients"
 import { pickFoodCatalogFields } from "./dataClone"
 
 const FoodItem = resolveModule<Model<IFoodItem>>(require("../models/foodItem"))
@@ -25,8 +30,13 @@ export type CatalogResult<T> =
 const escapeRegex = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-export const listPrivateFoodItemsForAdmin = async (q?: string, limit = 50) => {
-  const filter: Record<string, unknown> = {}
+export const listPrivateFoodItemsForAdmin = async (
+  admin: IUser,
+  q?: string,
+  limit = 50
+): Promise<Array<Record<string, unknown>>> => {
+  const ownership = await foodItemOwnerFilter(admin)
+  const filter: Record<string, unknown> = { ...ownership }
   if (q && q.trim()) {
     filter.name = { $regex: escapeRegex(q.trim()), $options: "i" }
   }
@@ -37,7 +47,23 @@ export const listPrivateFoodItemsForAdmin = async (q?: string, limit = 50) => {
       "name isFood category unit packageQuantity price calories nutrition image openFoodFactsData user updatedAt"
     )
     .lean()
-  return items
+
+  const ids = items.map((item) => item._id).filter(Boolean)
+  const published = ids.length
+    ? await GlobalFoodItem.find({
+        sourceFoodItemId: mongoose.trusted({ $in: ids }),
+      })
+        .select("sourceFoodItemId")
+        .lean()
+    : []
+  const publishedIds = new Set(
+    published.map((row) => String(row.sourceFoodItemId))
+  )
+
+  return items.map((item) => ({
+    ...item,
+    inOpenCatalog: publishedIds.has(String(item._id)),
+  }))
 }
 
 export const publishFoodItemToCatalog = async (
@@ -53,7 +79,8 @@ export const publishFoodItemToCatalog = async (
     return { status: "ok", data: existing }
   }
 
-  const source = await FoodItem.findById(foodItemId)
+  const ownership = await foodItemOwnerFilter(admin)
+  const source = await FoodItem.findOne({ _id: foodItemId, ...ownership })
   if (!source) {
     return { status: "not_found", message: "Food item not found" }
   }
@@ -66,15 +93,50 @@ export const publishFoodItemToCatalog = async (
   return { status: "ok", data: published }
 }
 
-export const listAdminMeals = async (admin: IUser, q?: string, limit = 50) => {
-  const filter: Record<string, unknown> = { user: admin._id }
-  if (q && q.trim()) {
-    filter.name = { $regex: escapeRegex(q.trim()), $options: "i" }
-  }
-  return Meal.find(filter)
+export const listAdminMeals = async (
+  admin: IUser,
+  q?: string,
+  limit = 50
+): Promise<Array<Record<string, unknown>>> => {
+  const ownership = await getDataQuery(admin, "user")
+  const filter =
+    q && q.trim()
+      ? mongoose.trusted({
+          $and: [
+            ownership,
+            { name: { $regex: escapeRegex(q.trim()), $options: "i" } },
+          ],
+        })
+      : ownership
+  const meals = await Meal.find(filter)
     .sort({ createdAt: -1 })
     .limit(Math.min(limit, 100))
-    .populate("foodItems.foodId", "name unit")
+    .populate({
+      path: "foodItems.foodId",
+      select: MEAL_FOOD_CATALOG_SELECT,
+    })
+  const flattened = meals
+    .map((meal) => flattenMealFoodItems(meal))
+    .filter(Boolean)
+
+  const ids = flattened
+    .map((meal) => (meal as { _id?: unknown })._id)
+    .filter(Boolean)
+  const published = ids.length
+    ? await GlobalMeal.find({
+        sourceMealId: mongoose.trusted({ $in: ids }),
+      })
+        .select("sourceMealId")
+        .lean()
+    : []
+  const publishedIds = new Set(published.map((row) => String(row.sourceMealId)))
+
+  return flattened.map((meal) => ({
+    ...(meal as object),
+    inOpenCatalog: publishedIds.has(
+      String((meal as { _id?: unknown })._id)
+    ),
+  }))
 }
 
 export const publishMealToCatalog = async (
@@ -90,9 +152,10 @@ export const publishMealToCatalog = async (
     return { status: "ok", data: existing }
   }
 
-  const source = await Meal.findOne({ _id: mealId, user: admin._id }).populate(
-    "foodItems.foodId"
-  )
+  const ownership = await getDataQuery(admin, "user")
+  const source = await Meal.findOne(
+    mongoose.trusted({ $and: [{ _id: mealId }, ownership] })
+  ).populate("foodItems.foodId")
   if (!source) {
     return { status: "not_found", message: "Meal not found" }
   }
@@ -135,10 +198,16 @@ export const publishMealToCatalog = async (
     recipeSteps: source.recipeSteps || [],
     difficultyLevel: source.difficultyLevel,
     cookingTime: source.cookingTime,
-    defaultRoles: source.defaultRoles,
+    defaultRoles: serializeMealDefaultRoles(source.defaultRoles),
     mealCategory: source.mealCategory || [],
     servings: source.servings || 4,
-    foodItems: ingredients,
+    foodItems: ingredients.map((row) => ({
+      ...row,
+      quantity:
+        typeof row.quantity === "number" && Number.isFinite(row.quantity)
+          ? row.quantity
+          : 1,
+    })),
     image: source.image
       ? { url: source.image.url, publicId: source.image.publicId }
       : undefined,
@@ -147,6 +216,23 @@ export const publishMealToCatalog = async (
   })
 
   return { status: "ok", data: published }
+}
+
+/** Meal.defaultRoles getter returns string[]; GlobalMeal stores JSON string. */
+const serializeMealDefaultRoles = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.length ? value : ["dinner"])
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed) && parsed.length) return JSON.stringify(parsed)
+    } catch {
+      return JSON.stringify([value])
+    }
+    return value
+  }
+  return JSON.stringify(["dinner"])
 }
 
 export const listGlobalFoodItems = async (q?: string, limit = 50) => {
@@ -278,6 +364,88 @@ export const copyGlobalMealToUser = async (
     $addToSet: { meals: meal._id },
   })
   return { status: "ok", data: meal }
+}
+
+export const updateGlobalFoodItem = async (
+  id: string,
+  body: Partial<{
+    name: string
+    isFood: boolean
+    category: string[]
+    unit: string
+    packageQuantity: number
+    price: number
+    calories: number
+    nutrition: IGlobalFoodItem["nutrition"]
+  }>
+): Promise<CatalogResult<IGlobalFoodItem>> => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return { status: "bad_request", message: "Invalid id" }
+  }
+  const allowed: Record<string, unknown> = {}
+  for (const key of [
+    "name",
+    "isFood",
+    "category",
+    "unit",
+    "packageQuantity",
+    "price",
+    "calories",
+    "nutrition",
+  ] as const) {
+    if (body[key] !== undefined) allowed[key] = body[key]
+  }
+  if (typeof allowed.name === "string" && !allowed.name.trim()) {
+    return { status: "bad_request", message: "Name is required" }
+  }
+  const updated = await GlobalFoodItem.findByIdAndUpdate(
+    id,
+    { $set: allowed },
+    { new: true }
+  )
+  if (!updated) return { status: "not_found", message: "Not found" }
+  return { status: "ok", data: updated }
+}
+
+export const updateGlobalMeal = async (
+  id: string,
+  body: Partial<{
+    name: string
+    recipe: string
+    recipeSteps: string[]
+    difficultyLevel: "easy" | "medium" | "hard"
+    cookingTime: number
+    servings: number
+    mealCategory: IGlobalMeal["mealCategory"]
+    defaultRoles: string
+  }>
+): Promise<CatalogResult<IGlobalMeal>> => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return { status: "bad_request", message: "Invalid id" }
+  }
+  const allowed: Record<string, unknown> = {}
+  for (const key of [
+    "name",
+    "recipe",
+    "recipeSteps",
+    "difficultyLevel",
+    "cookingTime",
+    "servings",
+    "mealCategory",
+    "defaultRoles",
+  ] as const) {
+    if (body[key] !== undefined) allowed[key] = body[key]
+  }
+  if (typeof allowed.name === "string" && !allowed.name.trim()) {
+    return { status: "bad_request", message: "Name is required" }
+  }
+  const updated = await GlobalMeal.findByIdAndUpdate(
+    id,
+    { $set: allowed },
+    { new: true }
+  )
+  if (!updated) return { status: "not_found", message: "Not found" }
+  return { status: "ok", data: updated }
 }
 
 export const deleteGlobalFoodItem = async (
